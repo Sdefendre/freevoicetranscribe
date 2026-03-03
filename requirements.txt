@@ -1,0 +1,7 @@
+lightning-whisper-mlx
+pyaudio
+pynput
+rumps
+numpy
+pyobjc-framework-Cocoa
+pyobjc-framework-Quartz
