@@ -42,6 +42,9 @@ class AppPaths:
     def model_root(self) -> Path:
         return self.support / "mlx_models"
 
+    def device_settings_path(self) -> Path:
+        return self.support / "device-settings.json"
+
     def create(self) -> None:
         for directory in (self.support, self.cache, self.logs, self.temp):
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -75,6 +78,36 @@ class AppPaths:
             except OSError:
                 continue
         return removed
+
+
+def _save_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
+        pass
+    fd, raw_temp = tempfile.mkstemp(suffix=".tmp", dir=path.parent)
+    temp_path = Path(raw_temp)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as destination:
+            destination.write(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            )
+            destination.flush()
+            os.fsync(destination.fileno())
+        os.replace(temp_path, path)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 class LastTranscriptStore:
@@ -177,3 +210,39 @@ def configure_logging(paths: AppPaths) -> logging.Logger:
     )
     logger.addHandler(handler)
     return logger
+
+
+class DeviceSettingsStore:
+    VERSION = 1
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or AppPaths.default().device_settings_path()
+
+    def _defaults(self) -> dict:
+        return {
+            "version": self.VERSION,
+            "input_device_index": None,
+            "input_device_name": None,
+            "shortcuts": {"record": "fn", "hands_free": "fn+space", "cancel": "esc"},
+            "history_enabled": False,
+            "history_max_entries": 200,
+            "replay_last_recording": False,
+            "check_for_updates": True,
+            "feedback_url": "https://github.com/Sdefendre/freevoicetranscribe/issues/new",
+        }
+
+    def load(self) -> dict:
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return self._defaults()
+        if not isinstance(payload, dict):
+            return self._defaults()
+        defaults = self._defaults()
+        defaults.update(payload)
+        return defaults
+
+    def save(self, payload: dict) -> None:
+        normalized = dict(self._defaults())
+        normalized.update(payload)
+        _save_json_atomic(self.path, normalized)

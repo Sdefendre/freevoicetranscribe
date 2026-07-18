@@ -831,6 +831,22 @@ class StatusBarApp(rumps.App):
         self._coordinator.shutdown()
         rumps.quit_application()
 
+    def open_feedback(self) -> None:
+        settings = getattr(self._coordinator, "settings_store", None)
+        url = None
+        if settings is not None:
+            try:
+                url = settings.load().get("feedback_url")
+            except Exception:
+                url = None
+        target = url or "https://github.com/Sdefendre/freevoicetranscribe/issues/new"
+        try:
+            AppKit.NSWorkspace.sharedWorkspace().openURL_(
+                AppKit.NSURL.URLWithString_(target)
+            )
+        except Exception:
+            pass
+
     def run(self, **options) -> None:
         self._refresh_timer.start()
         super().run(**options)

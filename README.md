@@ -31,6 +31,33 @@ brew install portaudio
 
 Homebrew Python 3.11 is the recommended release-build interpreter. Static or standalone Python distributions are rejected because `py2app` cannot build a complete runtime from them.
 
+## Supported languages
+
+The bundled `distil-large-v3` model is multilingual. The app does not enforce a single language, so you can speak the supported languages in the same vocabulary without changing a setting.
+
+Commonly supported languages include:
+
+- English
+- Spanish
+- French
+- German
+- Portuguese
+- Italian
+- Dutch
+- Polish
+- Russian
+- Japanese
+- Korean
+- Chinese
+
+For best results, use a natural pace and clearly separate sentences or phrases. Punctuation is optional for personal use.
+
+## Audio input device
+
+FreeVoiceTranscribe records from your default input device. To use a specific microphone or USB audio interface, set it as the system default input before recording.
+
+If you need better guidance for setup, use **Open Microphone Settings** from the setup window or the app menu bar when available.
+
 ## Run from source
 
 The launcher creates `.venv` with the first compatible Python it finds, installs the pinned runtime requirements when `requirements.txt` changes, and starts the package entry point:
@@ -71,7 +98,18 @@ The setup window guides you through three prerequisites:
 
 After changing a permission in **System Settings → Privacy & Security**, return to FreeVoiceTranscribe and refresh setup. Packaged and source runs have different macOS permission identities, so switching between them may require granting access again.
 
-Once setup is complete, focus an enabled editable field in another app before pressing **fn**. Apps with custom editors or restricted paste behavior may not expose a compatible field through macOS Accessibility.
+### Compatible editable fields
+
+Once setup is complete, focus an enabled editable field in another app before pressing **fn**. Apps with custom editors, web-based text fields without native Accessibility support, password fields, terminal shells without input permission, or remote desktop session controls may not expose a compatible target.
+
+If you see **No editable text field is available**, try this before reporting a bug:
+
+- Click directly inside a text field in a supported app.
+- Stop screen-sharing or remote desktop sessions.
+- Quit the input-consuming app and reopen the text field.
+- Disable automation or scripting add-ons for the target app, then retry.
+
+If the issue persists, use **Send Feedback** in the menu bar.
 
 ## Privacy and local data
 
@@ -88,20 +126,25 @@ Local files live outside the source tree and app bundle:
 
 ```text
 ~/Library/Application Support/FreeVoiceTranscribe/
-├── last-transcript.json       latest transcript only (mode 0600)
-└── mlx_models/                downloaded speech model
+├── device-settings.json    persisted device and shortcut preferences (mode 0600)
+├── last-transcript.json    latest transcript only (mode 0600)
+└── mlx_models/             downloaded speech model
 
 ~/Library/Caches/FreeVoiceTranscribe/
-├── Temporary/                 temporary recordings
-└── huggingface/               model-download cache
+├── Temporary/              temporary recordings
+└── huggingface/            model-download cache
 
 ~/Library/Logs/FreeVoiceTranscribe/
-├── app.log                    current diagnostic log
-├── app.log.1                  rotated log, when present
-└── app.log.2                  rotated log, when present
+├── app.log                 current diagnostic log
+├── app.log.1               rotated log, when present
+└── app.log.2               rotated log, when present
 ```
 
 Application directories are created with private permissions when the filesystem permits it. `app.log` rotates at 512 KiB with two backups.
+
+## Feedback and bug reports
+
+Use **Send Feedback** in the menu bar. It opens a prefilled GitHub issue with your app version and a short bug report form. You can also open issues directly at https://github.com/Sdefendre/freevoicetranscribe/issues/new.
 
 ## Build the macOS app
 
@@ -192,8 +235,7 @@ Use `--skip-signature` only for isolated verifier fixtures; it is not a release 
 ```text
 fvt/app.py             application composition and lifecycle
 fvt/state.py           legal states and immutable snapshots
-fvt/coordinator.py     serialized events, workers, and recovery paths
-fvt/audio.py           bounded capture and private temporary WAV handling
+fvt/audio.py           bounded capture and device-aware WAV handling
 fvt/transcription.py   local model readiness and PCM transcription
 fvt/hotkey.py          resilient fn, fn+Space, and Esc event tap
 fvt/insertion.py       exact target validation and safe clipboard insertion

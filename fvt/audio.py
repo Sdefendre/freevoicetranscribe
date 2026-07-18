@@ -21,6 +21,14 @@ class AudioError(RuntimeError):
     pass
 
 
+def _default_input_device(pa: pyaudio.PyAudio) -> tuple[int | None, str | None]:
+    try:
+        info = pa.get_default_input_device_info()
+    except (OSError, IOError):
+        return None, None
+    return info.get("index"), info.get("name")
+
+
 @dataclass(slots=True)
 class _CaptureSession:
     """All mutable state for exactly one recorder run.
@@ -29,8 +37,8 @@ class _CaptureSession:
     late worker from writing into a newer recording's buffers or stop events.
     """
 
-    on_level: AudioLevelCallback | None
-    on_limit: AudioLimitCallback | None
+    on_level: AudioLevelCallback | None = None
+    on_limit: AudioLimitCallback | None = None
     opened: threading.Event = field(default_factory=threading.Event)
     stop_requested: threading.Event = field(default_factory=threading.Event)
     finished: threading.Event = field(default_factory=threading.Event)
@@ -60,6 +68,7 @@ class AudioRecorder:
         abort_timeout: float = 0.5,
         pa_factory: Callable[[], object] | None = None,
         logger: logging.Logger | None = None,
+        input_device_index: int | None = None,
     ) -> None:
         self._temp_dir = temp_dir
         self._sample_rate = sample_rate
@@ -73,6 +82,34 @@ class AudioRecorder:
         self._logger = logger or logging.getLogger("freevoicetranscribe.audio")
         self._lock = threading.RLock()
         self._session: _CaptureSession | None = None
+        self._input_device_index = input_device_index
+        self._input_device_name: str | None = None
+        self._used_default_device = input_device_index is None
+
+    @property
+    def input_device_index(self) -> int | None:
+        return self._input_device_index
+
+    @property
+    def input_device_name(self) -> str | None:
+        if self._input_device_name is not None:
+            return self._input_device_name
+        if self._input_device_index is not None and self._session is None:
+            try:
+                with self._pa_factory() as pa:
+                    info = pa.get_device_info_by_index(self._input_device_index)
+            except Exception:
+                return None
+            return info.get("name") if isinstance(info, dict) else None
+        return self._input_device_name or (
+            self._session.pa.get_default_input_device_info().get("name")
+            if self._session is not None and self._session.pa is not None
+            else None
+        )
+
+    @property
+    def used_default_device(self) -> bool:
+        return self._used_default_device
 
     @property
     def is_recording(self) -> bool:
@@ -138,13 +175,18 @@ class AudioRecorder:
         limit_callback: AudioLimitCallback | None = None
         try:
             session.pa = self._pa_factory()
-            session.stream = session.pa.open(
-                format=pyaudio.paInt16,
-                channels=self._channels,
-                rate=self._sample_rate,
-                frames_per_buffer=self._frames_per_buffer,
-                input=True,
-            )
+            open_kwargs = {
+                "format": pyaudio.paInt16,
+                "channels": self._channels,
+                "rate": self._sample_rate,
+                "frames_per_buffer": self._frames_per_buffer,
+                "input": True,
+            }
+            try:
+                open_kwargs["input_device_index"] = self._input_device_index
+            except Exception:
+                pass
+            session.stream = session.pa.open(**open_kwargs)
             session.opened.set()
 
             while not session.stop_requested.is_set():

@@ -13,3 +13,5 @@ mlx_models/
 .cache/
 
 .gitignore playwright cleanup
+
+.gitignore

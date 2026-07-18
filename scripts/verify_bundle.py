@@ -187,8 +187,9 @@ def _require_native_modules(mach_o_files: list[Path], contents: Path) -> None:
         "PyAudio": lambda value: "_portaudio" in Path(value).name,
         "PyObjC": lambda value: Path(value).name.startswith("_objc."),
         "NumPy": lambda value: "_multiarray_umath" in Path(value).name,
-        "MLX": lambda value: "/mlx/" in f"/{value}"
-        and Path(value).name.startswith("core."),
+        "MLX": lambda value: (
+            "/mlx/" in f"/{value}" and Path(value).name.startswith("core.")
+        ),
         "Numba OpenMP": lambda value: Path(value).name.startswith("omppool."),
     }
     for name, predicate in requirements.items():

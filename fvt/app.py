@@ -12,7 +12,12 @@ from .coordinator import AppCoordinator
 from .hotkey import FnListener
 from .insertion import MacTextInserter
 from .permissions import MacPermissionService
-from .storage import AppPaths, configure_logging
+from .storage import (
+    AppPaths,
+    configure_logging,
+    DeviceSettingsStore,
+    LastTranscriptStore,
+)
 from .transcription import MLXTranscriber
 from .ui import StatusBarApp
 
@@ -33,19 +38,27 @@ def create_application(paths: AppPaths | None = None):
         on_cancel=lambda: coordinator_ref["coordinator"].cancel_recording(),
         logger=logger.getChild("hotkey"),
     )
+    settings = DeviceSettingsStore(paths.device_settings_path())
     coordinator = AppCoordinator(
-        audio=AudioRecorder(paths.temp, logger=logger.getChild("audio")),
+        audio=AudioRecorder(
+            paths.temp,
+            logger=logger.getChild("audio"),
+            input_device_index=settings.load().get("input_device_index"),
+        ),
         transcriber=MLXTranscriber(paths, logger=logger.getChild("transcription")),
         inserter=MacTextInserter(logger=logger.getChild("insertion")),
         hotkey=hotkey,
         permissions=MacPermissionService(logger=logger.getChild("permissions")),
         logger=logger.getChild("coordinator"),
+        settings_store=settings,
+        transcript_store=LastTranscriptStore.default(),
     )
     coordinator_ref["coordinator"] = coordinator
     status_bar = StatusBarApp(coordinator)
     coordinator.set_observers(
         on_snapshot=lambda snapshot: AppHelper.callAfter(status_bar.update, snapshot),
         on_audio_level=status_bar.hud.update_audio,
+        on_feedback=status_bar.open_feedback,
     )
     return coordinator, status_bar
 

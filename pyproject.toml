@@ -8,7 +8,7 @@ version = "2.0.0"
 description = "Private local hold-to-talk dictation for Apple Silicon Macs"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
-license = "LicenseRef-Private-Use"
+license = {text = "MIT"}
 authors = [{ name = "Steve Defendre" }]
 dependencies = [
     "lightning-whisper-mlx==0.0.10",
