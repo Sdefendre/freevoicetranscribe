@@ -1,7 +1,9 @@
-lightning-whisper-mlx
-pyaudio
-pynput
-rumps
-numpy
-pyobjc-framework-Cocoa
-pyobjc-framework-Quartz
+# Direct runtime requirements. Keep in sync with pyproject.toml.
+lightning-whisper-mlx==0.0.10
+numpy==2.4.2
+PyAudio==0.2.14
+pynput==1.8.1
+pyobjc-framework-ApplicationServices==12.1
+pyobjc-framework-Cocoa==12.1
+pyobjc-framework-Quartz==12.1
+rumps==0.4.0

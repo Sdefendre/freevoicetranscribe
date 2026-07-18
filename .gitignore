@@ -3,3 +3,11 @@ __pycache__/
 *.pyc
 *.wav
 .DS_Store
+build/
+dist/
+.build-assets/
+.build-venv/
+*.egg-info/
+*.app
+mlx_models/
+.cache/
