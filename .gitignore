@@ -11,3 +11,5 @@ dist/
 *.app
 mlx_models/
 .cache/
+
+.gitignore playwright cleanup
