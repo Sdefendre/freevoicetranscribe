@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f3ede2" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#252523" media="(prefers-color-scheme: dark)">
+    <meta name="color-scheme" content="light dark">
+    <meta name="robots" content="noindex, nofollow">
+    <meta
+      name="description"
+      content="FreeVoiceTranscribe is private, local hold-to-talk dictation for Apple Silicon Macs. Hold fn, speak, and release to insert."
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="FreeVoiceTranscribe — Private dictation for Mac">
+    <meta
+      property="og:description"
+      content="Hold fn, speak, and release. Transcription runs locally on your Apple Silicon Mac."
+    >
+    <meta property="og:image" content="/assets/app-icon.svg">
+    <meta property="og:image:alt" content="FreeVoiceTranscribe waveform-to-caret app icon">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="FreeVoiceTranscribe — Private dictation for Mac">
+    <meta
+      name="twitter:description"
+      content="Hold fn, speak, and release. Transcription runs locally on your Apple Silicon Mac."
+    >
+    <meta name="twitter:image" content="/assets/app-icon.svg">
+    <title>FreeVoiceTranscribe — Private dictation for Mac</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#top" aria-label="FreeVoiceTranscribe, back to top">
+          <img src="assets/app-icon.svg" width="36" height="36" alt="">
+          <span>FreeVoiceTranscribe</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="#how-it-works">How it works</a>
+          <a href="#privacy">Privacy</a>
+          <a href="#details">Features</a>
+          <a href="#availability">Availability</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="hero section-shell" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span aria-hidden="true"></span> Private dictation for Mac</p>
+          <h1 id="hero-title">Your words,<br><em>right at the cursor.</em></h1>
+          <p class="hero-lede">
+            Hold the <kbd>fn</kbd> key, speak, then release. FreeVoiceTranscribe turns
+            your voice into text locally, then returns it to the supported focused
+            editable field where you started.
+          </p>
+          <div class="hero-actions" role="group" aria-label="Product availability">
+            <a class="availability-button" href="#availability" aria-describedby="availability-note">
+              Check launch status
+            </a>
+            <a class="text-link" href="#how-it-works">
+              See how it works
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M4 9h9M10 5l4 4-4 4"></path>
+              </svg>
+            </a>
+          </div>
+          <p class="availability-note" id="availability-note">
+            The local app is working. Developer ID distribution signing and Apple
+            notarization for a public build are not complete.
+          </p>
+          <dl class="hero-specs" role="group" aria-label="System requirements and launch status">
+            <div>
+              <dt>Runs on</dt>
+              <dd>Apple Silicon</dd>
+            </div>
+            <div>
+              <dt>Requires</dt>
+              <dd>macOS 14+</dd>
+            </div>
+            <div>
+              <dt>Launch status</dt>
+              <dd><span class="status-mark" aria-hidden="true"></span> Public build pending</dd>
+            </div>
+          </dl>
+        </div>
+
+        <figure class="hero-demo" aria-labelledby="demo-caption">
+          <div class="hero-motif" aria-hidden="true">
+            <div class="motif-wave">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <span class="motif-bridge"></span>
+            <span class="motif-caret"></span>
+          </div>
+          <div
+            class="demo-shell"
+            data-demo
+            data-state="transcribing"
+            role="img"
+            aria-label="An illustrative product flow shows a supported focused editable field, the shipped recording HUD, local transcription, and insertion at the verified original cursor."
+          >
+            <div class="demo-titlebar" aria-hidden="true">
+              <div class="window-dots"><span></span><span></span><span></span></div>
+              <span>Field note</span>
+              <span class="local-badge">On this Mac</span>
+            </div>
+            <div class="writing-canvas" aria-hidden="true">
+              <p class="document-kicker">TUESDAY · 9:41 AM</p>
+              <p class="document-title">A thought before it disappears.</p>
+              <p class="document-copy">
+                The best tools leave the work in focus. Capture
+                <span class="typed-text" data-demo-text>a clear thought, placed right where you left the cursor.</span><span class="caret"></span>
+              </p>
+              <div class="document-rule"></div>
+              <p class="document-muted">The next sentence is already waiting.</p>
+            </div>
+
+            <div class="dictation-hud" aria-hidden="true">
+              <span class="hud-state-mark"></span>
+              <div class="hud-copy">
+                <span class="hud-state" data-demo-status>Transcribing</span>
+                <span class="hud-detail" data-demo-detail>Processing locally on this Mac.</span>
+              </div>
+              <div class="waveform" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+          <figcaption id="demo-caption">
+            <span>Illustrative product flow · Timing varies by recording length and Mac.</span>
+            <button class="replay-button" type="button" data-demo-replay>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M14 6V2m0 0h-4m4 0-2.1 2.1a5.5 5.5 0 1 0 1.3 7.7"></path>
+              </svg>
+              Replay demo
+            </button>
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="signal-strip" aria-label="Core product promise">
+        <div class="signal-line" aria-hidden="true"></div>
+        <p>Hold one key. Speak naturally. Keep your work moving.</p>
+      </section>
+
+      <section class="how-section section-shell" id="how-it-works" aria-labelledby="how-title">
+        <div class="section-intro">
+          <p class="eyebrow">Voice to caret</p>
+          <h2 id="how-title">A direct path from voice to text.</h2>
+          <p>
+            There is no dashboard between a thought and the place it belongs. The
+            shortcut follows you from app to app.
+          </p>
+        </div>
+
+        <ol class="process-rail">
+          <li>
+            <span class="step-number">01</span>
+            <div class="rail-mark"><span class="keycap">fn</span></div>
+            <h3>Hold</h3>
+            <p>Start with a supported editable field focused in the app you are using.</p>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <div class="rail-mark rail-wave" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <h3>Speak</h3>
+            <p>The microphone is active only for the recording you start.</p>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <div class="rail-mark rail-release" aria-hidden="true">↑</div>
+            <h3>Release</h3>
+            <p>Your recording is transcribed by the local model on your Mac.</p>
+          </li>
+          <li>
+            <span class="step-number">04</span>
+            <div class="rail-mark rail-caret" aria-hidden="true"></div>
+            <h3>Keep moving</h3>
+            <p>
+              The original app and exact focused field are verified again before
+              insertion. If that check or insertion fails, the transcript is copied instead.
+            </p>
+          </li>
+        </ol>
+
+        <p class="hands-free-note">
+          Need both hands? Press <kbd>fn</kbd> + <kbd>Space</kbd> while recording to
+          switch to hands-free mode. Press <kbd>fn</kbd> again when you are done.
+        </p>
+      </section>
+
+      <section class="privacy-section" id="privacy" aria-labelledby="privacy-title">
+        <div class="privacy-inner">
+          <div class="privacy-statement">
+            <p class="eyebrow eyebrow-on-dark">Privacy, by architecture</p>
+            <h2 id="privacy-title">
+              Your voice does not need a round trip through
+              <em>someone else’s cloud.</em>
+            </h2>
+          </div>
+          <div class="privacy-points">
+            <article>
+              <span class="privacy-index">A</span>
+              <div>
+                <h3>Transcription stays local</h3>
+                <p>
+                  After a one-time speech-model download, inference runs on your
+                  Apple Silicon Mac.
+                </p>
+              </div>
+            </article>
+            <article>
+              <span class="privacy-index">B</span>
+              <div>
+                <h3>The microphone has a clear boundary</h3>
+                <p>
+                  It opens only while you are recording and releases when the
+                  recording ends or is cancelled.
+                </p>
+              </div>
+            </article>
+            <article>
+              <span class="privacy-index">C</span>
+              <div>
+                <h3>No account. No transcript archive.</h3>
+                <p>
+                  Only the latest transcript persists locally for recovery until a
+                  newer result replaces it. The app does not build a transcript history.
+                </p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="details-section section-shell" id="details" aria-labelledby="details-title">
+        <div class="details-heading">
+          <p class="eyebrow">Small by design</p>
+          <h2 id="details-title">The useful controls. Nothing to tend.</h2>
+        </div>
+
+        <div class="details-layout">
+          <div class="detail-list">
+            <article>
+              <span>01</span>
+              <div>
+                <h3>Cancel without residue</h3>
+                <p>Press <kbd>Esc</kbd> during a recording to stop and delete the audio.</p>
+              </div>
+            </article>
+            <article>
+              <span>02</span>
+              <div>
+                <h3>Fail closed, then copy</h3>
+                <p>
+                  The app verifies the original process and exact focused editable
+                  field before insertion. If verification or insertion fails, it
+                  copies the transcript to the clipboard instead.
+                </p>
+              </div>
+            </article>
+            <article>
+              <span>03</span>
+              <div>
+                <h3>A sensible recording boundary</h3>
+                <p>Each recording is capped at five minutes and can be cancelled sooner.</p>
+              </div>
+            </article>
+            <article>
+              <span>04</span>
+              <div>
+                <h3>A quiet menu-bar presence</h3>
+                <p>
+                  Setup is available when you need it. The app stays out of the Dock
+                  when you do not.
+                </p>
+              </div>
+            </article>
+          </div>
+
+        </div>
+      </section>
+
+      <section class="availability-section" id="availability" aria-labelledby="availability-title">
+        <div class="availability-inner">
+          <div class="availability-heading">
+            <p class="eyebrow">Launch status</p>
+            <h2 id="availability-title">The local app works.<br><em>Public distribution is pending.</em></h2>
+            <p>
+              This is a noindex preview while there is no public download. A
+              distribution build still needs Developer ID signing and Apple
+              notarization before release; those steps are not complete.
+            </p>
+          </div>
+
+          <div class="availability-details">
+            <div class="release-state">
+              <p class="panel-label">Current state</p>
+              <p class="release-state-title">
+                <span class="status-mark" aria-hidden="true"></span>
+                Public build pending
+              </p>
+              <p>
+                The application has been built and verified locally. There is no
+                public artifact or public download link on this preview.
+              </p>
+            </div>
+
+            <div class="requirements-list" aria-labelledby="requirements-title">
+              <p class="panel-label">Before you begin</p>
+              <h3 id="requirements-title">Requirements</h3>
+              <dl>
+                <div>
+                  <dt>Hardware</dt>
+                  <dd>Mac with Apple Silicon</dd>
+                </div>
+                <div>
+                  <dt>System</dt>
+                  <dd>macOS 14 or newer</dd>
+                </div>
+                <div>
+                  <dt>First launch</dt>
+                  <dd>One-time model download</dd>
+                </div>
+                <div>
+                  <dt>Permissions</dt>
+                  <dd>Microphone + Accessibility</dd>
+                </div>
+              </dl>
+              <p class="requirements-note">
+                Accessibility permission enables the global <kbd>fn</kbd> shortcut
+                and insertion into a supported focused editable field.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="faq-section section-shell" id="faq" aria-labelledby="faq-title">
+        <div class="faq-heading">
+          <p class="eyebrow">The practical questions</p>
+          <h2 id="faq-title">Before you start.</h2>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>Does it need an internet connection?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                Only for the one-time speech-model download. Once the model is on
+                your Mac, transcription runs locally.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Which text fields are supported?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                The field must be focused, enabled, and exposed by its app to macOS
+                Accessibility as an editable value or text selection. Support can
+                vary in apps that use custom editors or restrict paste behavior.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>What happens if the original field cannot be verified?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                The app fails closed: it does not type into a different field. It
+                copies the transcript to the clipboard instead. If copying also
+                fails, the latest transcript remains available from the menu bar.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Why does it need Accessibility permission?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                macOS requires Accessibility permission for the global <kbd>fn</kbd>
+                shortcut, focused-field verification, and insertion into the
+                supported editable field where you started.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>What transcript data is stored?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                Only the latest transcript persists locally for recovery until a
+                newer transcript replaces it. There is no transcript history.
+                Temporary recording audio is deleted after completion or cancellation.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>What if I start recording by accident?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                Press <kbd>Esc</kbd>. Recording stops and that temporary audio is
+                deleted without transcription.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Does it run on Intel Macs?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>No. FreeVoiceTranscribe currently requires a Mac with Apple Silicon and macOS 14 or newer.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Can I download it now?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                Not publicly yet. The local application is working, but a public
+                build still needs Developer ID distribution signing and Apple
+                notarization. Those release steps are not complete.
+              </p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="final-section" aria-labelledby="final-title">
+        <div class="final-inner">
+          <img src="assets/app-icon.svg" width="72" height="72" alt="">
+          <p class="eyebrow">FreeVoiceTranscribe</p>
+          <h2 id="final-title">Built for the cursor.<br><em>Not a dashboard.</em></h2>
+          <p>
+            Private, local dictation for the moment when typing is slower than thinking.
+          </p>
+          <div class="final-actions">
+            <a class="availability-button availability-button-light" href="#availability" aria-describedby="final-note">
+              Check launch status
+            </a>
+            <a class="text-link text-link-light" href="#top">Back to the demo</a>
+          </div>
+          <p class="final-note" id="final-note">
+            Apple Silicon · macOS 14+ · Public distribution build pending
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <p>© <span data-year>2026</span> Steve Defendre</p>
+        <p>Private, local dictation for Apple Silicon Macs.</p>
+        <nav aria-label="Footer navigation">
+          <a href="#privacy">Privacy</a>
+          <a href="#details">Features</a>
+          <a href="#availability">Availability</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,1 @@
+"""FreeVoiceTranscribe test suite."""

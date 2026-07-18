@@ -2,8 +2,7 @@
 
 Private, local hold-to-talk dictation for Apple Silicon Macs. Focus an editable field, hold **fn/globe**, speak, and release to insert the transcript where you started.
 
-> [!IMPORTANT]
-> The app works locally, but there is no public download yet. The repository is private and public distribution still requires Developer ID signing, notarization, stapling, and clean-Mac validation.
+FreeVoiceTranscribe is free, open-source software released under the [MIT license](./LICENSE).
 
 ## What it does
 
@@ -207,40 +206,10 @@ site/                  static noindex product preview
 
 The root `freevoicetranscribe.py`, `fn_listener.py`, and `overlay.py` files are compatibility shims for earlier imports and launch commands. New code should use the `fvt` package.
 
-## Troubleshooting
+## Contributing
 
-### Microphone access is missing
-
-Open **FVT → Open Setup…**, choose the microphone action, approve FreeVoiceTranscribe (or the source Python host) under **System Settings → Privacy & Security → Microphone**, then return and refresh setup.
-
-### The fn shortcut does nothing
-
-Enable the correct app identity under **System Settings → Privacy & Security → Accessibility**. Source and packaged runs are separate entries. Return to setup after granting access so the event tap can restart.
-
-### The app asks me to choose where text should go
-
-Focus an enabled editable field in another app before holding **fn**. The app intentionally refuses to record for insertion when it cannot capture a safe destination.
-
-### Model setup fails
-
-Confirm internet connectivity and available disk space, keep the app open, and choose **Download Model** again. The model is stored under Application Support, not in the app bundle or repository.
-
-### Text was copied instead of inserted
-
-The original app or exact field could not be revalidated, Accessibility access changed, or paste failed. Refocus the destination and choose **Insert Last Transcript** from the menu bar.
-
-### I need to recover the previous transcript
-
-Choose **Copy Last Transcript** or focus a compatible field and choose **Insert Last Transcript**. The latest transcript survives app restarts until another successful transcription replaces it.
-
-### A recording started accidentally
-
-Press **Esc**. The app cancels capture and deletes the temporary audio without transcribing it.
-
-### Build validation fails
-
-Read the first verifier error and inspect `~/Library/Logs/FreeVoiceTranscribe/app.log` for launch failures. For staging-only failures, rerun once with `FVT_RETAIN_FAILED_STAGING=1`; do not distribute anything from that retained directory.
+See `CONTRIBUTING.md` for build instructions, testing expectations, and pull-request guidance.
 
 ## License and distribution
 
-This is a private repository. Package metadata uses `LicenseRef-Private-Use`; no open-source license or redistribution grant is provided.
+This project is released under the MIT License. See `LICENSE` for the full terms.

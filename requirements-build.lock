@@ -1,0 +1,8 @@
+# Exact release-build environment. Runtime pins mirror requirements.lock.
+-r requirements.lock
+altgraph==0.17.5
+macholib==1.16.4
+modulegraph==0.19.7
+py2app==0.28.9
+setuptools==80.10.2
+wheel==0.46.3
