@@ -4,6 +4,8 @@ Private, local hold-to-talk dictation for Apple Silicon Macs. Focus an editable 
 
 FreeVoiceTranscribe is free, open-source software released under the [MIT license](./LICENSE).
 
+![FreeVoiceTranscribe landing page](docs/assets/landing-page.png)
+
 ## What it does
 
 - Hold **fn** to record; release it to transcribe and insert.
