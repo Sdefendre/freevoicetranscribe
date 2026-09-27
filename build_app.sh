@@ -12,6 +12,7 @@ STAGING_APP="$STAGING_DIST/FreeVoiceTranscribe.app"
 FINAL_DIST="$PROJECT_DIR/dist"
 FINAL_APP="$FINAL_DIST/FreeVoiceTranscribe.app"
 BUILD_COMPLETE=0
+BACKUP_ROOT=""
 
 cleanup() {
     local exit_code=$?
@@ -24,17 +25,22 @@ cleanup() {
         else
             rm -rf "$BUILD_ROOT"
         fi
-        rm -rf "$FINAL_APP"
-        if [ -d "$FINAL_DIST" ] && [ -z "$(find "$FINAL_DIST" -mindepth 1 -print -quit)" ]; then
-            rmdir "$FINAL_DIST"
+        if [ -n "$BACKUP_ROOT" ] && [ -d "$BACKUP_ROOT/FreeVoiceTranscribe.app" ]; then
+            rm -rf "$FINAL_APP"
+            mv "$BACKUP_ROOT/FreeVoiceTranscribe.app" "$FINAL_APP"
         fi
         echo "Build failed; no partial app was published to dist/." >&2
     else
         rm -rf "$BUILD_ROOT"
     fi
+    if [ -n "$BACKUP_ROOT" ]; then
+        rmdir "$BACKUP_ROOT" 2>/dev/null || true
+    fi
     exit "$exit_code"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
     echo "Error: the app must be built on an Apple Silicon Mac." >&2
@@ -108,7 +114,7 @@ validate_python "$BUILD_VENV/bin/python" > /dev/null
 printf '%s\n' "$LOCK_HASH" > "$BUILD_STAMP"
 "$BUILD_VENV/bin/python" -m pip check
 
-rm -rf "$PROJECT_DIR/build" "$FINAL_DIST" "$PROJECT_DIR/.build-assets"
+rm -rf "$BUILD_ROOT" "$PROJECT_DIR/.build-assets"
 mkdir -p "$PROJECT_DIR/.build-assets/AppIcon.iconset" "$STAGING_DIST"
 
 "$BUILD_VENV/bin/python" "$PROJECT_DIR/generate_icon.py" \
@@ -198,8 +204,14 @@ else
 fi
 
 mkdir -p "$FINAL_DIST"
+BACKUP_ROOT="$(mktemp -d "$FINAL_DIST/.previous-build.XXXXXX")"
+if [ -e "$FINAL_APP" ]; then
+    mv "$FINAL_APP" "$BACKUP_ROOT/FreeVoiceTranscribe.app"
+fi
 mv "$STAGING_APP" "$FINAL_APP"
 BUILD_COMPLETE=1
+rm -rf "$BACKUP_ROOT"
+BACKUP_ROOT=""
 
 echo "Built and verified: $FINAL_APP"
 echo "Code signing: $SIGNING_DESCRIPTION"

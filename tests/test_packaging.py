@@ -1,5 +1,7 @@
 import os
 import plistlib
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +28,29 @@ from scripts.verify_bundle import (
     module_present,
     verify_bundle,
 )
+
+
+class BuildPublicationTests(unittest.TestCase):
+    def test_failed_rebuild_preserves_previous_app_and_other_dist_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            shutil.copy2(Path(__file__).resolve().parents[1] / "build_app.sh", root)
+            app = root / "dist" / "FreeVoiceTranscribe.app"
+            app.mkdir(parents=True)
+            marker = app / "previous-build"
+            marker.write_text("working app")
+            other = root / "dist" / "release-notes.txt"
+            other.write_text("keep me")
+            result = subprocess.run(
+                ["bash", str(root / "build_app.sh")],
+                env={**os.environ, "PYTHON": "/usr/bin/false"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(marker.exists(), result.stderr)
+            self.assertEqual(marker.read_text(), "working app")
+            self.assertEqual(other.read_text(), "keep me")
 
 
 class BuildPythonValidationTests(unittest.TestCase):

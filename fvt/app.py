@@ -14,9 +14,9 @@ from .insertion import MacTextInserter
 from .permissions import MacPermissionService
 from .storage import (
     AppPaths,
-    configure_logging,
     DeviceSettingsStore,
     LastTranscriptStore,
+    configure_logging,
 )
 from .transcription import MLXTranscriber
 from .ui import StatusBarApp
@@ -58,7 +58,6 @@ def create_application(paths: AppPaths | None = None):
     coordinator.set_observers(
         on_snapshot=lambda snapshot: AppHelper.callAfter(status_bar.update, snapshot),
         on_audio_level=status_bar.hud.update_audio,
-        on_feedback=status_bar.open_feedback,
     )
     return coordinator, status_bar
 

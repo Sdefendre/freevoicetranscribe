@@ -123,10 +123,12 @@ class AppCoordinator:
         hotkey: HotkeyService,
         permissions: PermissionService,
         transcript_store=None,
+        settings_store=None,
         logger: logging.Logger | None = None,
         min_audio_seconds: float = 0.25,
         shutdown_timeout: float = 2.0,
     ) -> None:
+        self.settings_store = settings_store
         self.audio = audio
         self.transcriber = transcriber
         self.inserter = inserter

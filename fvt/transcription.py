@@ -112,7 +112,9 @@ class MLXTranscriber:
                         model=self._model_name,
                         batch_size=self._batch_size,
                     )
-                    self._factory_backed = True
+                    # The default model constructor downloads files; inference
+                    # must still use PCM to avoid an external ffmpeg dependency.
+                    self._factory_backed = self._model_factory is not None
             except Exception as exc:
                 self._logger.warning(
                     "Speech model preparation failed: %s", type(exc).__name__

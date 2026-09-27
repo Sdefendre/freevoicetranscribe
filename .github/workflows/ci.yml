@@ -18,10 +18,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install PortAudio
+        run: brew install portaudio
+
       - name: Install dependencies
         run: |
           python3 -m pip install -r requirements.txt
-          python3 -m pip install ruff
+          python3 -m pip install "ruff==0.14.13"
 
       - name: Lint
         run: |
