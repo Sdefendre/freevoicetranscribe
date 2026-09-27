@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
@@ -12,30 +15,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Install build prerequisites
+        run: brew install python@3.11 portaudio
 
-      - name: Install build dependencies
-        run: |
-          python3 -m pip install -r requirements-build.lock
-
-      - name: Build app
+      - name: Build local review app
         env:
-          CODESIGN_IDENTITY: ${{ secrets.FVT_CODESIGN_IDENTITY }}
+          PYTHON: /opt/homebrew/bin/python3.11
         run: ./build_app.sh
+
+      - name: Archive app with executable permissions and symlinks
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent dist/FreeVoiceTranscribe.app dist/FreeVoiceTranscribe-macos-arm64.zip
+          cd dist
+          shasum -a 256 FreeVoiceTranscribe-macos-arm64.zip > FreeVoiceTranscribe-macos-arm64.zip.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: FreeVoiceTranscribe
-          path: dist/FreeVoiceTranscribe.app
+          path: |
+            dist/FreeVoiceTranscribe-macos-arm64.zip
+            dist/FreeVoiceTranscribe-macos-arm64.zip.sha256
+          if-no-files-found: error
           retention-days: 14
 
-      - name: Create GitHub Release
+      - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          fail_on_unmatched_files: true
+          body: |
+            This is an ad-hoc signed Apple Silicon build for local review.
+            It is not notarized and is not a trusted public macOS release.
+            Before publishing, replace these assets with a Developer ID signed,
+            notarized and stapled build, verify Gatekeeper on a clean Mac,
+            and regenerate the SHA-256 checksum. See README.md.
           generate_release_notes: true
+          files: |
+            dist/FreeVoiceTranscribe-macos-arm64.zip
+            dist/FreeVoiceTranscribe-macos-arm64.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -772,6 +772,9 @@ class StatusBarApp(rumps.App):
         self._dismiss_item = rumps.MenuItem(
             "Dismiss Error", callback=self._dismiss_error
         )
+        self._feedback_item = rumps.MenuItem(
+            "Send Feedback", callback=self.open_feedback
+        )
         self._quit_item = rumps.MenuItem("Quit", callback=self._quit)
         self.menu = [
             self._status_item,
@@ -782,6 +785,7 @@ class StatusBarApp(rumps.App):
             None,
             self._setup_item,
             self._dismiss_item,
+            self._feedback_item,
             None,
             self._quit_item,
         ]
@@ -831,7 +835,7 @@ class StatusBarApp(rumps.App):
         self._coordinator.shutdown()
         rumps.quit_application()
 
-    def open_feedback(self) -> None:
+    def open_feedback(self, _sender=None) -> None:
         settings = getattr(self._coordinator, "settings_store", None)
         url = None
         if settings is not None:

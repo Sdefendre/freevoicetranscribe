@@ -9,12 +9,19 @@ This project follows the Contributor Covenant. See `CODE_OF_CONDUCT.md`.
 
 ## Getting Started
 
-Clone the repository and create the virtual environment:
+Install Homebrew Python 3.11 and PortAudio, then clone the repository and create the virtual environment:
 
 ```bash
+brew install python@3.11 portaudio
 git clone https://github.com/Sdefendre/freevoicetranscribe.git
 cd freevoicetranscribe
 ./run.sh
+```
+
+Install the development tools before running the checks:
+
+```bash
+.venv/bin/python -m pip install -e '.[dev]'
 ```
 
 Run the checks:
@@ -60,7 +67,9 @@ first failure first.
 
 ## Releases
 
-This project uses GitHub Releases and signed macOS artifacts when possible.
+Tag builds attach a ZIP and checksum to a draft GitHub Release. The CI app is
+ad-hoc signed for review; public distribution requires Developer ID signing,
+notarization, stapling, and clean-Mac verification. See the README release steps.
 Source contributors should not change the build scripts or bundle metadata
 without discussion.
 

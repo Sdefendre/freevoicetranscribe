@@ -13,6 +13,7 @@ FreeVoiceTranscribe is free, open-source software released under the [MIT licens
 - Press **Esc** while recording to cancel and delete that recording.
 - Recover the latest transcript with **Copy Last Transcript** or **Insert Last Transcript** from the menu bar.
 - Transcribe locally with the `distil-large-v3` model through `lightning-whisper-mlx`.
+- Process recorded PCM audio in process, including immediately after model setup; no ffmpeg install is required.
 - Limit each recording to five minutes.
 
 FreeVoiceTranscribe has no account system, cloud transcription, transcript history, or always-on microphone. It is a menu-bar app after setup and does not remain in the Dock.
@@ -28,31 +29,17 @@ FreeVoiceTranscribe has no account system, cloud transcription, transcript histo
 Install PortAudio with Homebrew:
 
 ```bash
-brew install portaudio
+brew install python@3.11 portaudio
 ```
 
 Homebrew Python 3.11 is the recommended release-build interpreter. Static or standalone Python distributions are rejected because `py2app` cannot build a complete runtime from them.
 
 ## Supported languages
 
-The bundled `distil-large-v3` model is multilingual. The app does not enforce a single language, so you can speak the supported languages in the same vocabulary without changing a setting.
-
-Commonly supported languages include:
-
-- English
-- Spanish
-- French
-- German
-- Portuguese
-- Italian
-- Dutch
-- Polish
-- Russian
-- Japanese
-- Korean
-- Chinese
-
-For best results, use a natural pace and clearly separate sentences or phrases. Punctuation is optional for personal use.
+The default `distil-large-v3` model supports **English speech recognition**.
+It is downloaded during setup, not bundled in the app. Other languages are not
+supported by this default model; the app currently has no model/language selector.
+See the [upstream model card](https://huggingface.co/distil-whisper/distil-large-v3).
 
 ## Audio input device
 
@@ -60,9 +47,18 @@ FreeVoiceTranscribe records from your default input device. To use a specific mi
 
 If you need better guidance for setup, use **Open Microphone Settings** from the setup window or the app menu bar when available.
 
-## Run from source
+## Install and run from source
 
-The launcher creates `.venv` with the first compatible Python it finds, installs the pinned runtime requirements when `requirements.txt` changes, and starts the package entry point:
+Use an Apple Silicon terminal (not Rosetta) on macOS 14 or newer. Install the
+prerequisites above, then clone the project:
+
+```bash
+git clone https://github.com/Sdefendre/freevoicetranscribe.git
+cd freevoicetranscribe
+```
+
+
+The launcher creates `.venv` with the first compatible Python it finds (3.13, then 3.12, then 3.11), installs the pinned runtime requirements when `requirements.txt` changes, and starts the package entry point:
 
 ```bash
 ./run.sh
@@ -71,7 +67,7 @@ The launcher creates `.venv` with the first compatible Python it finds, installs
 You can also create the environment manually:
 
 ```bash
-python3.11 -m venv .venv
+/opt/homebrew/bin/python3.11 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 PYTHONPATH="$PWD" .venv/bin/python -m fvt
 ```
@@ -79,7 +75,7 @@ PYTHONPATH="$PWD" .venv/bin/python -m fvt
 For a regular package install, the same direct dependencies are declared in `pyproject.toml`:
 
 ```bash
-python3.11 -m venv .venv
+/opt/homebrew/bin/python3.11 -m venv .venv
 .venv/bin/python -m pip install .
 .venv/bin/freevoicetranscribe
 ```
@@ -89,6 +85,11 @@ python3.11 -m venv .venv
 ```bash
 .venv/bin/python -m pip install -c requirements.lock .
 ```
+
+If installation reports `portaudio.h` missing, run `brew install portaudio`
+and retry. If an existing `.venv` belongs to an unsupported Python, rename it
+and recreate it with the explicit Python 3.11 command above. Python 3.14 and
+Intel/Rosetta Python are not supported.
 
 ## First launch
 
@@ -146,7 +147,7 @@ Application directories are created with private permissions when the filesystem
 
 ## Feedback and bug reports
 
-Use **Send Feedback** in the menu bar. It opens a prefilled GitHub issue with your app version and a short bug report form. You can also open issues directly at https://github.com/Sdefendre/freevoicetranscribe/issues/new.
+Use **Send Feedback** in the menu bar. It opens the GitHub new-issue page; include your app version and steps to reproduce the problem. You can also open issues directly at https://github.com/Sdefendre/freevoicetranscribe/issues/new.
 
 ## Build the macOS app
 
@@ -156,7 +157,7 @@ The release script creates or refreshes `.build-venv` from `requirements-build.l
 ./build_app.sh
 ```
 
-Successful output is written to:
+A failed rebuild preserves the previous app in `dist/`. Successful output replaces it at:
 
 ```text
 dist/FreeVoiceTranscribe.app
@@ -181,6 +182,39 @@ FVT_RETAIN_FAILED_STAGING=1 ./build_app.sh
 ```
 
 The retained files appear under `build/failed-release/`, never `dist/`.
+
+### Install a locally built app
+
+Quit any running copy, then copy `dist/FreeVoiceTranscribe.app` into your
+Applications folder and open that copy. No separate Python or PortAudio install
+is needed to run the built bundle. Complete setup again if macOS requests new
+Microphone or Accessibility permissions. Keep the app in the same location after
+setup so those permissions refer to the copy you actually use.
+
+### Release archives and public distribution
+
+The tag workflow builds an **ad-hoc signed review artifact**, packages it with
+`ditto` (preserving executable permissions and framework symlinks), and attaches
+the ZIP and SHA-256 checksum to a **draft** GitHub Release. A green workflow does
+not mean the app is notarized or publicly installable. CI does not import a
+Developer ID certificate; setting an identity name alone cannot sign a runner's
+build with that certificate.
+
+For a public release, build using an installed Developer ID Application identity,
+complete hardened-runtime/entitlement review, submit an archive to Apple's notary
+service, staple the accepted ticket to the app, and verify Gatekeeper on a clean
+supported Mac. Recreate the ZIP **after** stapling and replace the draft assets and
+checksum before publishing. Apple signing credentials are required for these steps.
+
+To package a verified local build:
+
+```bash
+ditto -c -k --sequesterRsrc --keepParent dist/FreeVoiceTranscribe.app dist/FreeVoiceTranscribe-macos-arm64.zip
+(cd dist && shasum -a 256 FreeVoiceTranscribe-macos-arm64.zip > FreeVoiceTranscribe-macos-arm64.zip.sha256)
+```
+
+Do not upload the raw `.app` directory through `upload-artifact`; its archive
+handling does not preserve the bundle's executable permissions.
 
 ### Build gates
 

@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import AppKit
 
@@ -12,6 +12,7 @@ from fvt.ui import (
     HUD_WIDTH,
     RecordingHUD,
     SetupWindow,
+    StatusBarApp,
     _button,
     _hud_frame_for_screen,
     _hud_palette,
@@ -38,6 +39,23 @@ class NativeUITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         AppKit.NSApplication.sharedApplication()
+
+    def test_feedback_menu_opens_the_issue_page(self):
+        coordinator = Mock()
+        coordinator.settings_store = None
+        app = StatusBarApp(coordinator)
+        with patch("fvt.ui.AppKit.NSWorkspace") as workspace:
+            item = app.menu["Send Feedback"]
+            self.assertIsNotNone(item.callback)
+            item.callback(item)
+        self.assertEqual(
+            str(
+                workspace.sharedWorkspace.return_value.openURL_.call_args.args[
+                    0
+                ].absoluteString()
+            ),
+            "https://github.com/Sdefendre/freevoicetranscribe/issues/new",
+        )
 
     def test_dynamic_button_state_keeps_voiceover_label_in_sync(self):
         button = _button(AppKit.NSMakeRect(0, 0, 140, 32), "Allow", None, b"")

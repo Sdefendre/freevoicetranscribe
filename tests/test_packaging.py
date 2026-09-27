@@ -1,5 +1,7 @@
 import os
 import plistlib
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,10 +24,34 @@ from scripts.verify_bundle import (
     _python_inventory,
     _run_import_smoke,
     _run_launch_liveness_smoke,
+    _terminate_process_group,
     _verify_code_signatures,
     module_present,
     verify_bundle,
 )
+
+
+class BuildPublicationTests(unittest.TestCase):
+    def test_failed_rebuild_preserves_previous_app_and_other_dist_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            shutil.copy2(Path(__file__).resolve().parents[1] / "build_app.sh", root)
+            app = root / "dist" / "FreeVoiceTranscribe.app"
+            app.mkdir(parents=True)
+            marker = app / "previous-build"
+            marker.write_text("working app")
+            other = root / "dist" / "release-notes.txt"
+            other.write_text("keep me")
+            result = subprocess.run(
+                ["bash", str(root / "build_app.sh")],
+                env={**os.environ, "PYTHON": "/usr/bin/false"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(marker.exists(), result.stderr)
+            self.assertEqual(marker.read_text(), "working app")
+            self.assertEqual(other.read_text(), "keep me")
 
 
 class BuildPythonValidationTests(unittest.TestCase):
@@ -235,6 +261,13 @@ class BundleVerifierTests(unittest.TestCase):
                     r"Resources/omppool\.so: omppool\.so: invalid signature",
                 ):
                     _verify_code_signatures(app, [extension], contents)
+
+    def test_cleanup_tolerates_an_inaccessible_group_after_child_exits(self):
+        process = subprocess.Popen(["/usr/bin/true"], start_new_session=True)
+        process.wait(timeout=5)
+        with patch("scripts.verify_bundle.os.killpg", side_effect=PermissionError()):
+            _terminate_process_group(process)
+        self.assertEqual(process.returncode, 0)
 
     def test_launch_smoke_requires_readiness_then_liveness(self):
         with tempfile.TemporaryDirectory() as temp:
