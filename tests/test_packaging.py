@@ -24,6 +24,7 @@ from scripts.verify_bundle import (
     _python_inventory,
     _run_import_smoke,
     _run_launch_liveness_smoke,
+    _terminate_process_group,
     _verify_code_signatures,
     module_present,
     verify_bundle,
@@ -260,6 +261,13 @@ class BundleVerifierTests(unittest.TestCase):
                     r"Resources/omppool\.so: omppool\.so: invalid signature",
                 ):
                     _verify_code_signatures(app, [extension], contents)
+
+    def test_cleanup_tolerates_an_inaccessible_group_after_child_exits(self):
+        process = subprocess.Popen(["/usr/bin/true"], start_new_session=True)
+        process.wait(timeout=5)
+        with patch("scripts.verify_bundle.os.killpg", side_effect=PermissionError()):
+            _terminate_process_group(process)
+        self.assertEqual(process.returncode, 0)
 
     def test_launch_smoke_requires_readiness_then_liveness(self):
         with tempfile.TemporaryDirectory() as temp:

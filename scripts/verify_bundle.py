@@ -262,11 +262,13 @@ def _terminate_process_group(
 
     # The py2app launcher is not expected to fork, but ensure a failed smoke
     # cannot leave a descendant from its isolated process group behind.
+    # The leader has been reaped. Its former group may already be gone or
+    # inaccessible; do not turn a successful smoke into a cleanup failure.
+    # Signal directly to avoid a check-then-kill race.
     try:
-        os.killpg(process.pid, 0)
-    except ProcessLookupError:
-        return
-    os.killpg(process.pid, signal.SIGKILL)
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def _capture_until(

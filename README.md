@@ -147,7 +147,7 @@ Application directories are created with private permissions when the filesystem
 
 ## Feedback and bug reports
 
-Use **Send Feedback** in the menu bar. It opens a prefilled GitHub issue with your app version and a short bug report form. You can also open issues directly at https://github.com/Sdefendre/freevoicetranscribe/issues/new.
+Use **Send Feedback** in the menu bar. It opens the GitHub new-issue page; include your app version and steps to reproduce the problem. You can also open issues directly at https://github.com/Sdefendre/freevoicetranscribe/issues/new.
 
 ## Build the macOS app
 
