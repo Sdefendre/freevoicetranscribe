@@ -6,27 +6,28 @@
     <meta name="theme-color" content="#f3ede2" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#252523" media="(prefers-color-scheme: dark)">
     <meta name="color-scheme" content="light dark">
-    <meta name="robots" content="noindex, nofollow">
     <meta
       name="description"
       content="FreeVoiceTranscribe is private, local hold-to-talk dictation for Apple Silicon Macs. Hold fn, speak, and release to insert."
     >
     <meta property="og:type" content="website">
-    <meta property="og:title" content="FreeVoiceTranscribe — Private dictation for Mac">
+    <meta property="og:title" content="FreeVoiceTranscribe: Private dictation for Mac">
     <meta
       property="og:description"
       content="Hold fn, speak, and release. Transcription runs locally on your Apple Silicon Mac."
     >
-    <meta property="og:image" content="/assets/app-icon.svg">
+    <meta property="og:image" content="https://sdefendre.github.io/freevoicetranscribe/assets/app-icon.svg">
+    <meta property="og:url" content="https://sdefendre.github.io/freevoicetranscribe/">
     <meta property="og:image:alt" content="FreeVoiceTranscribe waveform-to-caret app icon">
     <meta name="twitter:card" content="summary">
-    <meta name="twitter:title" content="FreeVoiceTranscribe — Private dictation for Mac">
+    <meta name="twitter:title" content="FreeVoiceTranscribe: Private dictation for Mac">
     <meta
       name="twitter:description"
       content="Hold fn, speak, and release. Transcription runs locally on your Apple Silicon Mac."
     >
-    <meta name="twitter:image" content="/assets/app-icon.svg">
-    <title>FreeVoiceTranscribe — Private dictation for Mac</title>
+    <meta name="twitter:image" content="https://sdefendre.github.io/freevoicetranscribe/assets/app-icon.svg">
+    <link rel="canonical" href="https://sdefendre.github.io/freevoicetranscribe/">
+    <title>FreeVoiceTranscribe: Private dictation for Mac</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
     <script src="app.js" defer></script>
@@ -44,8 +45,9 @@
           <a href="#how-it-works">How it works</a>
           <a href="#privacy">Privacy</a>
           <a href="#details">Features</a>
-          <a href="#availability">Availability</a>
+          <a href="#install">Install</a>
           <a href="#faq">FAQ</a>
+          <a href="https://github.com/Sdefendre/freevoicetranscribe">GitHub</a>
         </nav>
       </div>
     </header>
@@ -61,9 +63,10 @@
             editable field where you started.
           </p>
           <div class="hero-actions" role="group" aria-label="Product availability">
-            <a class="availability-button" href="#availability" aria-describedby="availability-note">
-              Check launch status
+            <a class="availability-button" href="https://github.com/Sdefendre/freevoicetranscribe">
+              View on GitHub
             </a>
+            <a class="text-link" href="#install">Install from source</a>
             <a class="text-link" href="#how-it-works">
               See how it works
               <svg viewBox="0 0 18 18" aria-hidden="true">
@@ -72,8 +75,8 @@
             </a>
           </div>
           <p class="availability-note" id="availability-note">
-            The local app is working. Developer ID distribution signing and Apple
-            notarization for a public build are not complete.
+            Free and open source under the MIT license. Run it from source today;
+            a signed and notarized public download is not available yet.
           </p>
           <dl class="hero-specs" role="group" aria-label="System requirements and launch status">
             <div>
@@ -296,9 +299,9 @@
             <p class="eyebrow">Launch status</p>
             <h2 id="availability-title">The local app works.<br><em>Public distribution is pending.</em></h2>
             <p>
-              This is a noindex preview while there is no public download. A
-              distribution build still needs Developer ID signing and Apple
-              notarization before release; those steps are not complete.
+              There is no public download yet. A distribution build still needs
+              Developer ID signing and Apple notarization before release. Until
+              then, you can run FreeVoiceTranscribe from source.
             </p>
           </div>
 
@@ -311,7 +314,7 @@
               </p>
               <p>
                 The application has been built and verified locally. There is no
-                public artifact or public download link on this preview.
+                public release artifact or download link yet.
               </p>
             </div>
 
@@ -342,6 +345,41 @@
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="faq-section section-shell install-section" id="install" aria-labelledby="install-title">
+        <div class="faq-heading">
+          <p class="eyebrow">Open source, MIT licensed</p>
+          <h2 id="install-title">Install from source.</h2>
+          <p>
+            You need an Apple Silicon Mac with macOS 14 or newer, Python 3.11 to 3.13,
+            and PortAudio. The first launch downloads the speech model once.
+          </p>
+        </div>
+        <div class="install-steps">
+          <ol>
+            <li>
+              <p>Install PortAudio with Homebrew.</p>
+              <pre><code>brew install portaudio</code></pre>
+            </li>
+            <li>
+              <p>Clone the repository.</p>
+              <pre><code>git clone https://github.com/Sdefendre/freevoicetranscribe.git
+cd freevoicetranscribe</code></pre>
+            </li>
+            <li>
+              <p>Run the launcher. It creates a virtual environment, installs the pinned requirements, and starts the app.</p>
+              <pre><code>./run.sh</code></pre>
+            </li>
+            <li>
+              <p>Follow the setup window: grant Microphone and Accessibility access, then download the local speech model.</p>
+            </li>
+          </ol>
+          <p class="requirements-note">
+            Full instructions, including manual setup and building the macOS app, are in the
+            <a href="https://github.com/Sdefendre/freevoicetranscribe#readme">README on GitHub</a>.
+          </p>
         </div>
       </section>
 
@@ -419,9 +457,9 @@
             <summary>Can I download it now?<span aria-hidden="true"></span></summary>
             <div class="answer">
               <p>
-                Not publicly yet. The local application is working, but a public
-                build still needs Developer ID distribution signing and Apple
-                notarization. Those release steps are not complete.
+                Not as a packaged app yet. A public build still needs Developer ID
+                distribution signing and Apple notarization. You can run it from
+                source today; see <a href="#install">Install from source</a>.
               </p>
             </div>
           </details>
@@ -437,8 +475,8 @@
             Private, local dictation for the moment when typing is slower than thinking.
           </p>
           <div class="final-actions">
-            <a class="availability-button availability-button-light" href="#availability" aria-describedby="final-note">
-              Check launch status
+            <a class="availability-button availability-button-light" href="https://github.com/Sdefendre/freevoicetranscribe">
+              View on GitHub
             </a>
             <a class="text-link text-link-light" href="#top">Back to the demo</a>
           </div>
@@ -452,12 +490,13 @@
     <footer class="site-footer">
       <div class="footer-inner">
         <p>© <span data-year>2026</span> Steve Defendre</p>
-        <p>Private, local dictation for Apple Silicon Macs.</p>
+        <p>Private, local dictation for Apple Silicon Macs. Released under the <a href="https://github.com/Sdefendre/freevoicetranscribe/blob/main/LICENSE">MIT license</a>.</p>
         <nav aria-label="Footer navigation">
           <a href="#privacy">Privacy</a>
           <a href="#details">Features</a>
-          <a href="#availability">Availability</a>
+          <a href="#install">Install</a>
           <a href="#faq">FAQ</a>
+          <a href="https://github.com/Sdefendre/freevoicetranscribe">GitHub</a>
         </nav>
       </div>
     </footer>

@@ -4,6 +4,10 @@ Private, local hold-to-talk dictation for Apple Silicon Macs. Focus an editable 
 
 FreeVoiceTranscribe is free, open-source software released under the [MIT license](./LICENSE).
 
+**Website:** https://sdefendre.github.io/freevoicetranscribe/
+
+> **Status:** there is no packaged download or GitHub release yet. A public build still needs Developer ID signing and Apple notarization. Run it from source with the steps below.
+
 ![FreeVoiceTranscribe landing page](docs/assets/landing-page.png)
 
 ## What it does
@@ -21,7 +25,7 @@ FreeVoiceTranscribe has no account system, cloud transcription, transcript histo
 
 | Use | Requirements |
 | --- | --- |
-| Run from source | Apple Silicon Mac, macOS 14+, Python 3.11–3.13, PortAudio |
+| Run from source | Apple Silicon Mac, macOS 14+, Python 3.11 to 3.13, PortAudio |
 | Build the app | The same hardware and OS, plus a framework-capable arm64 Python 3.11 |
 | First setup | Internet access and enough free space for the one-time speech-model download |
 
@@ -60,6 +64,15 @@ FreeVoiceTranscribe records from your default input device. To use a specific mi
 
 If you need better guidance for setup, use **Open Microphone Settings** from the setup window or the app menu bar when available.
 
+## Quick start
+
+```bash
+brew install portaudio
+git clone https://github.com/Sdefendre/freevoicetranscribe.git
+cd freevoicetranscribe
+./run.sh
+```
+
 ## Run from source
 
 The launcher creates `.venv` with the first compatible Python it finds, installs the pinned runtime requirements when `requirements.txt` changes, and starts the package entry point:
@@ -94,9 +107,9 @@ python3.11 -m venv .venv
 
 The setup window guides you through three prerequisites:
 
-1. **Microphone access** — captures only recordings you explicitly start.
-2. **Accessibility access** — detects the global shortcut, verifies the focused editable field, and pastes the result.
-3. **Speech model** — downloads the local `distil-large-v3` model once.
+1. **Microphone access**: captures only recordings you explicitly start.
+2. **Accessibility access**: detects the global shortcut, verifies the focused editable field, and pastes the result.
+3. **Speech model**: downloads the local `distil-large-v3` model once.
 
 After changing a permission in **System Settings → Privacy & Security**, return to FreeVoiceTranscribe and refresh setup. Packaged and source runs have different macOS permission identities, so switching between them may require granting access again.
 
@@ -245,7 +258,7 @@ fvt/permissions.py     macOS permission checks and Settings recovery
 fvt/storage.py         private paths, latest transcript, and rotating logs
 fvt/ui.py              setup window, menu bar, and multi-display HUD
 scripts/               build interpreter, bundle, and launch verification
-site/                  static noindex product preview
+site/                  static landing page, published to GitHub Pages
 ```
 
 The root `freevoicetranscribe.py`, `fn_listener.py`, and `overlay.py` files are compatibility shims for earlier imports and launch commands. New code should use the `fvt` package.
