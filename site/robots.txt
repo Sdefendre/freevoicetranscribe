@@ -1,4 +1,2 @@
 User-agent: *
-Disallow: /
-
-# No canonical public domain has been assigned yet.
+Allow: /

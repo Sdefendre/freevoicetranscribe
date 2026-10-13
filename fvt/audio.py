@@ -24,7 +24,7 @@ class AudioError(RuntimeError):
 def _default_input_device(pa: pyaudio.PyAudio) -> tuple[int | None, str | None]:
     try:
         info = pa.get_default_input_device_info()
-    except (OSError, IOError):
+    except OSError:
         return None, None
     return info.get("index"), info.get("name")
 

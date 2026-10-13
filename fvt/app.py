@@ -14,9 +14,9 @@ from .insertion import MacTextInserter
 from .permissions import MacPermissionService
 from .storage import (
     AppPaths,
-    configure_logging,
     DeviceSettingsStore,
     LastTranscriptStore,
+    configure_logging,
 )
 from .transcription import MLXTranscriber
 from .ui import StatusBarApp

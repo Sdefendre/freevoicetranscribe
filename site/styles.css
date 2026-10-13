@@ -1865,3 +1865,9 @@ kbd {
     border: 2px solid ButtonText;
   }
 }
+
+/* Install section */
+.install-steps ol { margin: 0; padding-left: 1.4rem; display: grid; gap: 1.25rem; }
+.install-steps li p { margin: 0 0 0.5rem; }
+.install-steps pre { margin: 0; padding: 0.85rem 1rem; overflow-x: auto; border-radius: 8px; background: rgba(37, 37, 35, 0.92); color: #f3ede2; font-size: 0.9rem; line-height: 1.5; }
+.install-steps a, .site-footer a { text-decoration: underline; text-underline-offset: 3px; }
