@@ -262,11 +262,16 @@ def _terminate_process_group(
 
     # The py2app launcher is not expected to fork, but ensure a failed smoke
     # cannot leave a descendant from its isolated process group behind.
+    # macOS can answer EPERM instead of ESRCH for a group whose leader was just
+    # reaped, so treat both as "no live members left" rather than crashing.
     try:
         os.killpg(process.pid, 0)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         return
-    os.killpg(process.pid, signal.SIGKILL)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def _capture_until(
