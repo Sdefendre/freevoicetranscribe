@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 import numpy as np
 
@@ -25,7 +25,7 @@ from .state import AppSnapshot, AppState, PermissionState, Readiness, StateStore
 from .storage import LastTranscriptStore
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     START = "start"
     REFRESH_SETUP = "refresh_setup"
     DOWNLOAD_MODEL = "download_model"

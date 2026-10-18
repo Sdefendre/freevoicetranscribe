@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from enum import Enum
+from enum import StrEnum
 
 from .contracts import ScreenFrame
 
 
-class AppState(str, Enum):
+class AppState(StrEnum):
     BOOTING = "booting"
     SETUP_REQUIRED = "setup_required"
     IDLE = "idle"
@@ -19,7 +19,7 @@ class AppState(str, Enum):
     SHUTTING_DOWN = "shutting_down"
 
 
-class PermissionState(str, Enum):
+class PermissionState(StrEnum):
     UNKNOWN = "unknown"
     GRANTED = "granted"
     DENIED = "denied"
