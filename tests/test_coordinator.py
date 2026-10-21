@@ -49,10 +49,14 @@ class FakeHotkey:
         self.start_succeeds = start_succeeds
         self.start_calls = 0
         self.stop_calls = 0
+        self.record_key = "fn"
 
     @property
     def is_healthy(self):
         return self.started and self.healthy
+
+    def set_record_key(self, key_id):
+        self.record_key = key_id
 
     def start(self):
         self.start_calls += 1
@@ -152,6 +156,21 @@ class FakeInserter:
         self.copied.append(text)
 
 
+class FakeSettingsStore:
+    def __init__(self, payload=None):
+        self.payload = payload or {
+            "shortcuts": {"record": "fn", "hands_free": "fn+space", "cancel": "esc"}
+        }
+        self.saved = []
+
+    def load(self):
+        return dict(self.payload)
+
+    def save(self, payload):
+        self.payload = dict(payload)
+        self.saved.append(dict(payload))
+
+
 class CoordinatorIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -168,6 +187,7 @@ class CoordinatorIntegrationTests(unittest.TestCase):
             hotkey=self.hotkey,
             permissions=self.permissions,
             transcript_store=self.transcript_store,
+            tap_max_hold=0,
         )
         self.coordinator.start()
         wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
@@ -233,6 +253,33 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         self.assertEqual(self.inserter.copied, ["hello world"])
         self.assertTrue(self.coordinator.snapshot.has_last_transcript)
 
+    def test_double_tap_locks_and_later_tap_finishes(self):
+        self.coordinator._tap_max_hold = 0.2
+        self.coordinator._double_tap_window = 0.3
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        time.sleep(0.02)
+        self.assertEqual(self.coordinator.snapshot.state, AppState.RECORDING)
+        self.assertFalse(self.coordinator.snapshot.hands_free)
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.hands_free)
+        self.coordinator.fn_release()
+        time.sleep(0.02)
+        self.assertEqual(self.coordinator.snapshot.state, AppState.RECORDING)
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+
+    def test_single_tap_finishes_after_double_tap_window(self):
+        self.coordinator._tap_max_hold = 0.2
+        self.coordinator._double_tap_window = 0.12
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+
 
 class CoordinatorSetupTests(unittest.TestCase):
     def test_missing_model_is_prepared_only_after_explicit_download(self):
@@ -284,6 +331,7 @@ class CoordinatorLifecycleTests(unittest.TestCase):
             "permissions": FakePermissions(),
             "transcript_store": FakeTranscriptStore(),
             "shutdown_timeout": 0.15,
+            "tap_max_hold": 0,
         }
         services.update(overrides)
         return AppCoordinator(**services)
@@ -379,6 +427,31 @@ class CoordinatorLifecycleTests(unittest.TestCase):
             wait_for(lambda: coordinator.snapshot.state is AppState.ERROR)
             self.assertEqual(inserter.inserted, [])
             self.assertEqual(inserter.copied, ["safe fallback"])
+            coordinator.shutdown()
+
+    def test_persisted_record_key_is_used_in_ready_copy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            settings = FakeSettingsStore(
+                {
+                    "shortcuts": {
+                        "record": "right-option",
+                        "hands_free": "right-option+space",
+                        "cancel": "esc",
+                    }
+                }
+            )
+            coordinator = self._coordinator(temp, settings_store=settings)
+            coordinator.start()
+            wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
+            self.assertEqual(coordinator.record_key, "right-option")
+            self.assertIn("right option", coordinator.snapshot.detail)
+            coordinator.set_record_key("f13")
+            wait_for(lambda: coordinator.record_key == "f13")
+            self.assertIn("F13", coordinator.snapshot.detail)
+            self.assertEqual(
+                settings.payload["shortcuts"]["record"],
+                "f13",
+            )
             coordinator.shutdown()
 
 

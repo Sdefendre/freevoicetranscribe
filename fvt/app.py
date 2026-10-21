@@ -17,6 +17,7 @@ from .storage import (
     DeviceSettingsStore,
     LastTranscriptStore,
     configure_logging,
+    normalize_record_key,
 )
 from .transcription import MLXTranscriber
 from .ui import StatusBarApp
@@ -31,14 +32,18 @@ def create_application(paths: AppPaths | None = None):
         logger.info("Removed %d stale temporary audio file(s)", removed)
 
     coordinator_ref: dict[str, AppCoordinator] = {}
+    settings = DeviceSettingsStore(paths.device_settings_path())
+    record_key = normalize_record_key(
+        (settings.load().get("shortcuts") or {}).get("record")
+    )
     hotkey = FnListener(
         on_press=lambda: coordinator_ref["coordinator"].fn_press(),
         on_release=lambda: coordinator_ref["coordinator"].fn_release(),
         on_fn_space=lambda: coordinator_ref["coordinator"].fn_space(),
         on_cancel=lambda: coordinator_ref["coordinator"].cancel_recording(),
+        record_key=record_key,
         logger=logger.getChild("hotkey"),
     )
-    settings = DeviceSettingsStore(paths.device_settings_path())
     coordinator = AppCoordinator(
         audio=AudioRecorder(
             paths.temp,
@@ -58,7 +63,6 @@ def create_application(paths: AppPaths | None = None):
     coordinator.set_observers(
         on_snapshot=lambda snapshot: AppHelper.callAfter(status_bar.update, snapshot),
         on_audio_level=status_bar.hud.update_audio,
-        on_feedback=status_bar.open_feedback,
     )
     return coordinator, status_bar
 
