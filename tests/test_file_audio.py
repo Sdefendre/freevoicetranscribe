@@ -1,14 +1,19 @@
+import subprocess
 import tempfile
+import threading
 import unittest
 import wave
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import numpy as np
 
 from fvt.file_audio import (
     SAMPLE_RATE,
+    AudioFileCancelled,
     AudioFileError,
     chunk_samples,
+    convert_with_afconvert,
     is_supported_audio_path,
     join_transcripts,
     load_mono_16k,
@@ -74,7 +79,9 @@ class FileAudioTests(unittest.TestCase):
             samples = load_mono_16k(source, temp_dir=root / "tmp", convert=convert)
             self.assertEqual(len(calls), 1)
             self.assertEqual(samples.shape, (4_000,))
-            self.assertFalse((root / "tmp" / "convert-clip.wav").exists())
+            self.assertTrue(calls[0][1].name.startswith("convert-"))
+            self.assertNotEqual(calls[0][1].name, "convert-clip.wav")
+            self.assertEqual(list((root / "tmp").glob("convert-*.wav")), [])
 
     def test_unsupported_suffix_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -92,6 +99,24 @@ class FileAudioTests(unittest.TestCase):
         self.assertEqual(chunks[2].size, 17 * SAMPLE_RATE)
         self.assertEqual(join_transcripts([" hello ", "", "world "]), "hello world")
 
+    def test_join_transcripts_trims_overlapping_words(self):
+        self.assertEqual(
+            join_transcripts(["and then we go", "we go to the store"]),
+            "and then we go to the store",
+        )
+        self.assertEqual(
+            join_transcripts(["hello world", "hello world", "hello world"]),
+            "hello world",
+        )
+        self.assertEqual(
+            join_transcripts(["Go to the store", "the store later"]),
+            "Go to the store later",
+        )
+        self.assertEqual(
+            join_transcripts(["one two three", "four five"]),
+            "one two three four five",
+        )
+
     def test_short_audio_stays_one_chunk(self):
         samples = np.zeros(int(12 * SAMPLE_RATE), dtype=np.float32)
         self.assertEqual(len(chunk_samples(samples)), 1)
@@ -108,6 +133,60 @@ class FileAudioTests(unittest.TestCase):
             self.assertEqual(text_path.stat().st_mode & 0o777, 0o600)
             self.assertTrue(wav_path.exists())
             self.assertEqual(wav_path.stat().st_mode & 0o777, 0o600)
+
+    def test_afconvert_missing_binary_is_a_local_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / "out.wav"
+            with patch(
+                "fvt.file_audio.subprocess.Popen",
+                side_effect=FileNotFoundError,
+            ):
+                with self.assertRaisesRegex(AudioFileError, "could not convert"):
+                    convert_with_afconvert(Path(temp) / "clip.m4a", dest)
+
+    def test_afconvert_nonzero_exit_is_a_local_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / "out.wav"
+            dest.write_bytes(b"")
+            process = Mock()
+            process.poll.return_value = 1
+            process.returncode = 1
+            process.communicate.return_value = ("", "fail")
+            with patch("fvt.file_audio.subprocess.Popen", return_value=process):
+                with self.assertRaisesRegex(AudioFileError, "could not be read"):
+                    convert_with_afconvert(Path(temp) / "clip.m4a", dest)
+
+    def test_afconvert_timeout_stops_the_process(self):
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / "out.wav"
+            dest.write_bytes(b"")
+            process = Mock()
+            process.poll.return_value = None
+            process.communicate.side_effect = subprocess.TimeoutExpired(
+                cmd="afconvert", timeout=0.01
+            )
+            with patch("fvt.file_audio.subprocess.Popen", return_value=process):
+                with self.assertRaisesRegex(AudioFileError, "too long"):
+                    convert_with_afconvert(Path(temp) / "clip.m4a", dest, timeout=0.05)
+            process.terminate.assert_called()
+
+    def test_afconvert_cancel_stops_the_process(self):
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / "out.wav"
+            dest.write_bytes(b"")
+            cancel = threading.Event()
+            cancel.set()
+            process = Mock()
+            process.poll.return_value = None
+            with patch("fvt.file_audio.subprocess.Popen", return_value=process):
+                with self.assertRaises(AudioFileCancelled):
+                    convert_with_afconvert(
+                        Path(temp) / "clip.m4a",
+                        dest,
+                        timeout=1.0,
+                        cancel_event=cancel,
+                    )
+            process.terminate.assert_called()
 
 
 if __name__ == "__main__":

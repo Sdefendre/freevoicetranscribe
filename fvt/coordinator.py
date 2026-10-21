@@ -23,6 +23,7 @@ from .contracts import (
     TranscriptionService,
 )
 from .file_audio import (
+    AudioFileCancelled,
     AudioFileError,
     chunk_samples,
     join_transcripts,
@@ -303,7 +304,8 @@ class AppCoordinator:
         self.submit(EventType.TRANSCRIBE_FILE, Path(path))
 
     def cancel_file_transcription(self) -> None:
-        self._file_cancel.set()
+        with self._lifecycle_lock:
+            self._file_cancel.set()
         self.submit(EventType.CANCEL_FILE)
 
     def copy_transcript(self, text: str) -> None:
@@ -1035,7 +1037,8 @@ class AppCoordinator:
             )
             return
 
-        self._file_cancel = threading.Event()
+        with self._lifecycle_lock:
+            self._file_cancel.clear()
         self._file_result = ""
         if state is AppState.ERROR:
             self._store.transition(AppState.IDLE)
@@ -1053,7 +1056,11 @@ class AppCoordinator:
 
     def _file_transcribe_worker(self, path: Path) -> None:
         try:
-            samples = load_mono_16k(path, temp_dir=self._temp_dir)
+            samples = load_mono_16k(
+                path,
+                temp_dir=self._temp_dir,
+                cancel_event=self._file_cancel,
+            )
             if self._file_cancel.is_set():
                 self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
                 return
@@ -1079,7 +1086,12 @@ class AppCoordinator:
                 EventType.FILE_TRANSCRIPTION_RESULT,
                 (join_transcripts(parts), None, False),
             )
+        except AudioFileCancelled:
+            self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
         except Exception as exc:
+            if self._file_cancel.is_set():
+                self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+                return
             self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", exc, False))
 
     def _transcribe_file_chunk(self, samples: np.ndarray) -> str:
@@ -1147,7 +1159,8 @@ class AppCoordinator:
         self._finish_file_job("File transcribed")
 
     def _cancel_file(self, _payload=None) -> None:
-        self._file_cancel.set()
+        with self._lifecycle_lock:
+            self._file_cancel.set()
         if self._store.snapshot.state is AppState.FILE_TRANSCRIBING:
             self._store.update(
                 title="Cancelling file transcription",

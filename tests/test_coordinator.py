@@ -4,10 +4,11 @@ import time
 import unittest
 import wave
 from pathlib import Path
+from unittest.mock import patch
 
 from fvt.contracts import CapturedAudio, InsertResult, TargetApp
 from fvt.coordinator import AppCoordinator
-from fvt.file_audio import SAMPLE_RATE
+from fvt.file_audio import SAMPLE_RATE, AudioFileCancelled
 from fvt.state import AppState, PermissionState
 
 
@@ -129,8 +130,10 @@ class FakeTranscriber:
         model_name="distil-large-v3",
         present_by_name=None,
         error=None,
+        texts=None,
     ):
         self.text = text
+        self.texts = list(texts) if texts is not None else None
         self._ready = ready
         self._present = present
         self._model_name = model_name
@@ -170,13 +173,18 @@ class FakeTranscriber:
 
     def transcribe(self, _path):
         self.calls += 1
-        return self.text
+        return self._next_text()
 
     def transcribe_samples(self, samples):
         self.calls += 1
         self.sample_lengths.append(len(samples))
         if self.error:
             raise RuntimeError(self.error)
+        return self._next_text()
+
+    def _next_text(self):
+        if self.texts:
+            return self.texts[min(self.calls - 1, len(self.texts) - 1)]
         return self.text
 
 
@@ -357,18 +365,29 @@ class CoordinatorIntegrationTests(unittest.TestCase):
     def test_file_transcription_chunks_saves_and_does_not_insert(self):
         path = self._write_wav("meeting.wav", 75)
         self.coordinator.transcribe_audio_file(path)
-        wait_for(
-            lambda: (
-                self.coordinator.file_result == "hello world hello world hello world"
-            )
-        )
+        wait_for(lambda: self.coordinator.file_result == "hello world")
         self.assertEqual(self.coordinator.snapshot.state, AppState.IDLE)
         self.assertEqual(self.coordinator.snapshot.title, "File transcribed")
         self.assertEqual(self.transcriber.calls, 3)
         self.assertEqual(self.inserter.inserted, [])
         self.assertTrue(self.coordinator.snapshot.has_last_transcript)
+        self.assertEqual(self.transcript_store.saved, ["hello world"])
+
+    def test_file_transcription_trims_overlapping_chunk_text(self):
+        path = self._write_wav("meeting.wav", 75)
+        self.transcriber.texts = [
+            "and then we go",
+            "we go to the store",
+            "to the store later",
+        ]
+        self.coordinator.transcribe_audio_file(path)
+        wait_for(
+            lambda: self.coordinator.file_result == "and then we go to the store later"
+        )
+        self.assertEqual(self.transcriber.calls, 3)
+        self.assertEqual(self.inserter.inserted, [])
         self.assertEqual(
-            self.transcript_store.saved, ["hello world hello world hello world"]
+            self.transcript_store.saved, ["and then we go to the store later"]
         )
 
     def test_file_transcription_is_blocked_while_recording(self):
@@ -404,6 +423,32 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(self.coordinator.file_result, "")
         self.assertLess(self.transcriber.calls, 3)
+
+    def test_file_transcription_can_be_cancelled_during_load(self):
+        path = Path(self.temp.name) / "talk.m4a"
+        path.write_bytes(b"not a wav")
+        started = threading.Event()
+
+        def blocking_load(*_args, **kwargs):
+            started.set()
+            cancel = kwargs.get("cancel_event")
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                if cancel is not None and cancel.is_set():
+                    raise AudioFileCancelled("File transcription was cancelled.")
+                time.sleep(0.01)
+            raise AssertionError("load was not cancelled")
+
+        with patch("fvt.coordinator.load_mono_16k", side_effect=blocking_load):
+            self.coordinator.transcribe_audio_file(path)
+            self.assertTrue(started.wait(1.0))
+            self.coordinator.cancel_file_transcription()
+            wait_for(
+                lambda: self.coordinator.snapshot.title
+                == "File transcription cancelled"
+            )
+        self.assertEqual(self.coordinator.file_result, "")
+        self.assertEqual(self.transcriber.calls, 0)
 
     def test_file_transcription_works_when_only_the_model_is_ready(self):
         path = self._write_wav("clip.wav", 1)

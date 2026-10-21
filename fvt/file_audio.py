@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import threading
+import time
 import wave
 from collections.abc import Callable
 from pathlib import Path
@@ -20,6 +22,9 @@ import numpy as np
 SAMPLE_RATE = 16_000
 CHUNK_SECONDS = 30.0
 OVERLAP_SECONDS = 1.0
+CONVERT_TIMEOUT_SECONDS = 300.0
+_PROCESS_POLL_SECONDS = 0.2
+_WORD_STRIP = ".,!?;:\"'“”‘’"
 
 # Formats Core Audio on macOS can typically decode. The picker and drop
 # target use this list; the decoder still fails closed if a file cannot be read.
@@ -42,6 +47,10 @@ AudioConverter = Callable[[Path, Path], None]
 
 
 class AudioFileError(RuntimeError):
+    pass
+
+
+class AudioFileCancelled(AudioFileError):
     pass
 
 
@@ -81,7 +90,34 @@ def write_transcript_text(path: Path, text: str) -> None:
 
 
 def join_transcripts(parts: list[str]) -> str:
-    return " ".join(part.strip() for part in parts if part.strip())
+    """Join chunk transcripts and drop words repeated at the overlap."""
+    cleaned = [part.strip() for part in parts if part.strip()]
+    if not cleaned:
+        return ""
+    joined = cleaned[0]
+    for part in cleaned[1:]:
+        joined = _merge_overlapping_text(joined, part)
+    return joined
+
+
+def _merge_overlapping_text(left: str, right: str) -> str:
+    left_words = left.split()
+    right_words = right.split()
+    if not left_words:
+        return right
+    if not right_words:
+        return left
+    max_overlap = min(len(left_words), len(right_words))
+    for size in range(max_overlap, 0, -1):
+        if _normalized_words(left_words[-size:]) == _normalized_words(
+            right_words[:size]
+        ):
+            return " ".join(left_words + right_words[size:])
+    return " ".join(left_words + right_words)
+
+
+def _normalized_words(words: list[str]) -> list[str]:
+    return [word.casefold().strip(_WORD_STRIP) for word in words]
 
 
 def chunk_samples(
@@ -123,8 +159,11 @@ def load_mono_16k(
     *,
     temp_dir: Path,
     convert: AudioConverter | None = None,
+    cancel_event: threading.Event | None = None,
+    convert_timeout: float = CONVERT_TIMEOUT_SECONDS,
 ) -> np.ndarray:
     """Read an audio file as 16 kHz mono float32 PCM in the range [-1, 1]."""
+    _raise_if_cancelled(cancel_event)
     if not is_supported_audio_path(path):
         raise AudioFileError("Choose a wav, mp3, m4a, or similar audio file.")
     if not path.is_file():
@@ -133,13 +172,26 @@ def load_mono_16k(
     if path.suffix.lower() in {".wav", ".wave"}:
         samples = _load_pcm_wav(path)
         if samples is not None:
+            _raise_if_cancelled(cancel_event)
             return samples
 
     temp_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    dest = temp_dir / f"convert-{path.stem}.wav"
+    fd, raw_path = tempfile.mkstemp(prefix="convert-", suffix=".wav", dir=temp_dir)
+    dest = Path(raw_path)
+    os.close(fd)
     try:
-        converter = convert or convert_with_afconvert
-        converter(path, dest)
+        dest.chmod(0o600)
+        _raise_if_cancelled(cancel_event)
+        if convert is not None:
+            convert(path, dest)
+        else:
+            convert_with_afconvert(
+                path,
+                dest,
+                timeout=convert_timeout,
+                cancel_event=cancel_event,
+            )
+        _raise_if_cancelled(cancel_event)
         samples = _load_pcm_wav(dest)
         if samples is None:
             raise AudioFileError("This audio file could not be read on this Mac.")
@@ -148,11 +200,17 @@ def load_mono_16k(
         dest.unlink(missing_ok=True)
 
 
-def convert_with_afconvert(source: Path, dest: Path) -> None:
+def convert_with_afconvert(
+    source: Path,
+    dest: Path,
+    *,
+    timeout: float = CONVERT_TIMEOUT_SECONDS,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Use the built-in macOS converter so compressed files never leave this Mac."""
     dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             [
                 "afconvert",
                 "-f",
@@ -164,18 +222,73 @@ def convert_with_afconvert(source: Path, dest: Path) -> None:
                 str(source),
                 str(dest),
             ],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            check=False,
         )
     except FileNotFoundError as exc:
         raise AudioFileError("This Mac could not convert that audio file.") from exc
-    if result.returncode != 0 or not dest.is_file():
+    _wait_for_process(process, timeout=timeout, cancel_event=cancel_event)
+    if process.returncode != 0 or not dest.is_file() or dest.stat().st_size <= 0:
         raise AudioFileError("This audio file could not be read on this Mac.")
     try:
         dest.chmod(0o600)
     except OSError:
         pass
+
+
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise AudioFileCancelled("File transcription was cancelled.")
+
+
+def _wait_for_process(
+    process: subprocess.Popen,
+    *,
+    timeout: float,
+    cancel_event: threading.Event | None,
+) -> None:
+    deadline = time.monotonic() + max(0.0, timeout)
+    while process.poll() is None:
+        _raise_if_cancelled_process(process, cancel_event)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _stop_process(process)
+            raise AudioFileError("This audio file took too long to read on this Mac.")
+        wait = min(_PROCESS_POLL_SECONDS, remaining)
+        if cancel_event is not None:
+            cancel_event.wait(timeout=wait)
+        else:
+            time.sleep(wait)
+    _raise_if_cancelled_process(process, cancel_event)
+    try:
+        process.communicate(timeout=1)
+    except subprocess.TimeoutExpired:
+        _stop_process(process)
+        raise AudioFileError("This audio file could not be read on this Mac.") from None
+
+
+def _raise_if_cancelled_process(
+    process: subprocess.Popen, cancel_event: threading.Event | None
+) -> None:
+    if cancel_event is None or not cancel_event.is_set():
+        return
+    _stop_process(process)
+    raise AudioFileCancelled("File transcription was cancelled.")
+
+
+def _stop_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=0.5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def _load_pcm_wav(path: Path) -> np.ndarray | None:
