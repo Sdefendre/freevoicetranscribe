@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420" role="img" aria-label="Menu bar before the writing modes">
+  <rect width="720" height="420" fill="#f4f4f5"/>
+  <text x="36" y="42" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#18181b">Before: menu bar</text>
+  <text x="36" y="68" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#52525b">Illustrative mock. Not captured from a running Mac.</text>
+  <rect x="200" y="96" width="320" height="288" rx="12" fill="#ffffff" stroke="#d4d4d8"/>
+  <text x="220" y="132" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="600" fill="#18181b">Ready</text>
+  <text x="220" y="156" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#52525b">Hold fn and speak. Release to insert.</text>
+  <line x1="220" y1="172" x2="500" y2="172" stroke="#e4e4e7"/>
+  <text x="220" y="200" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" fill="#18181b">Copy Last Transcript</text>
+  <text x="220" y="228" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" fill="#18181b">Insert Last Transcript</text>
+  <line x1="220" y1="244" x2="500" y2="244" stroke="#e4e4e7"/>
+  <text x="220" y="272" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" fill="#18181b">Open Setup&</text>
+  <text x="220" y="300" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" fill="#a1a1aa">Dismiss Error</text>
+  <line x1="220" y1="316" x2="500" y2="316" stroke="#e4e4e7"/>
+  <text x="220" y="348" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" fill="#18181b">Quit</text>
+</svg>

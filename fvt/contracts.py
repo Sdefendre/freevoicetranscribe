@@ -93,9 +93,32 @@ class TranscriptionService(Protocol):
 class InsertionService(Protocol):
     def capture_target(self) -> TargetApp | None: ...
 
+    def read_selected_text(self, target: TargetApp) -> str: ...
+
     def insert(self, text: str, target: TargetApp) -> InsertResult: ...
 
     def copy(self, text: str) -> None: ...
+
+
+class TextCleanupService(Protocol):
+    @property
+    def is_ready(self) -> bool: ...
+
+    @property
+    def model_present(self) -> bool: ...
+
+    def prepare(
+        self, *, allow_download: bool, on_status: StatusCallback | None = None
+    ) -> None: ...
+
+    def clean(
+        self,
+        text: str,
+        *,
+        mode: str,
+        tone: str = "",
+        selected_text: str = "",
+    ) -> str: ...
 
 
 class HotkeyService(Protocol):

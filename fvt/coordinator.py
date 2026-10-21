@@ -20,6 +20,7 @@ from .contracts import (
     InsertionService,
     PermissionService,
     TargetApp,
+    TextCleanupService,
     TranscriptionService,
 )
 from .file_audio import (
@@ -36,8 +37,17 @@ from .models import (
     profile_for,
     profile_for_model_name,
 )
-from .state import AppSnapshot, AppState, PermissionState, Readiness, StateStore
+from .state import (
+    AppSnapshot,
+    AppState,
+    DictationMode,
+    PermissionState,
+    Readiness,
+    StateStore,
+    idle_detail_for_mode,
+)
 from .storage import (
+    DEFAULT_APP_TONES,
     AppPaths,
     LastTranscriptStore,
     normalize_record_key,
@@ -65,6 +75,13 @@ class EventType(StrEnum):
     FILE_TRANSCRIPTION_PROGRESS = "file_transcription_progress"
     FILE_TRANSCRIPTION_RESULT = "file_transcription_result"
     CANCEL_FILE = "cancel_file"
+    CLEANUP_STATUS = "cleanup_status"
+    SET_DICTATION_MODE = "set_dictation_mode"
+    SET_APP_TONES = "set_app_tones"
+    DOWNLOAD_WRITING_MODEL = "download_writing_model"
+    WRITING_MODEL_STATUS = "writing_model_status"
+    WRITING_MODEL_READY = "writing_model_ready"
+    WRITING_MODEL_FAILED = "writing_model_failed"
     COPY_LAST = "copy_last"
     INSERT_LAST = "insert_last"
     DISMISS_ERROR = "dismiss_error"
@@ -79,6 +96,10 @@ class Event:
 
 SnapshotObserver = Callable[[AppSnapshot], None]
 AudioObserver = Callable[[np.ndarray], None]
+
+
+class CommandCleanupError(RuntimeError):
+    """Command mode could not rewrite the selection; do not paste the instruction."""
 
 
 class _DaemonWorkerPool:
@@ -152,6 +173,7 @@ class AppCoordinator:
         transcript_store=None,
         settings_store=None,
         temp_dir: Path | None = None,
+        cleaner: TextCleanupService | None = None,
         logger: logging.Logger | None = None,
         min_audio_seconds: float = 0.25,
         shutdown_timeout: float = 2.0,
@@ -164,6 +186,7 @@ class AppCoordinator:
         self.hotkey = hotkey
         self.permissions = permissions
         self.settings_store = settings_store
+        self.cleaner = cleaner
         self._logger = logger or logging.getLogger("freevoicetranscribe.coordinator")
         self._min_audio_seconds = min_audio_seconds
         self._shutdown_timeout = shutdown_timeout
@@ -191,6 +214,11 @@ class AppCoordinator:
         self._model_busy = False
         self._download_progress = None
         self._model_profile = self._load_model_profile()
+        self._writing_model_busy = False
+        self._dictation_mode = DictationMode.DICTATE
+        self._app_tones = dict(DEFAULT_APP_TONES)
+        self._selected_text = ""
+        self._load_writing_preferences()
         self._hotkey_started = False
         self._hands_free = False
         self._target: TargetApp | None = None
@@ -200,7 +228,11 @@ class AppCoordinator:
         except Exception as exc:
             self._logger.warning("Last transcript load failed: %s", type(exc).__name__)
             self._last_transcript = ""
-        self._store.update(has_last_transcript=bool(self._last_transcript))
+        self._store.update(
+            has_last_transcript=bool(self._last_transcript),
+            dictation_mode=self._dictation_mode,
+            **self._writing_fields(),
+        )
         if settings_store is not None:
             try:
                 shortcuts = settings_store.load().get("shortcuts") or {}
@@ -282,6 +314,18 @@ class AppCoordinator:
     def select_model_profile(self, profile_id: str) -> None:
         self.submit(EventType.SELECT_MODEL, profile_id)
 
+    def download_writing_model(self) -> None:
+        self.submit(EventType.DOWNLOAD_WRITING_MODEL)
+
+    def set_dictation_mode(self, mode: str) -> None:
+        self.submit(EventType.SET_DICTATION_MODE, mode)
+
+    def set_app_tones(self, tones: dict[str, str]) -> None:
+        self.submit(EventType.SET_APP_TONES, tones)
+
+    def app_tones(self) -> dict[str, str]:
+        return dict(self._app_tones)
+
     def request_microphone(self) -> None:
         self.permissions.request_microphone(
             lambda _granted: self.submit(EventType.REFRESH_SETUP)
@@ -356,6 +400,13 @@ class AppCoordinator:
             EventType.FILE_TRANSCRIPTION_PROGRESS: self._file_transcription_progress,
             EventType.FILE_TRANSCRIPTION_RESULT: self._file_transcription_result,
             EventType.CANCEL_FILE: self._cancel_file,
+            EventType.CLEANUP_STATUS: self._cleanup_status,
+            EventType.SET_DICTATION_MODE: self._set_dictation_mode,
+            EventType.SET_APP_TONES: self._set_app_tones,
+            EventType.DOWNLOAD_WRITING_MODEL: self._download_writing_model,
+            EventType.WRITING_MODEL_STATUS: self._writing_model_status,
+            EventType.WRITING_MODEL_READY: self._writing_model_ready,
+            EventType.WRITING_MODEL_FAILED: self._writing_model_failed,
             EventType.COPY_LAST: self._copy_last,
             EventType.INSERT_LAST: self._insert_last,
             EventType.DISMISS_ERROR: self._dismiss_error,
@@ -367,6 +418,73 @@ class AppCoordinator:
         self._refresh_readiness()
         if self.transcriber.model_present and not self.transcriber.is_ready:
             self._prepare_model(allow_download=False)
+        if (
+            self._dictation_mode is not DictationMode.DICTATE
+            and self.cleaner is not None
+            and self.cleaner.model_present
+            and not self.cleaner.is_ready
+        ):
+            self._prepare_writing_model(allow_download=False)
+
+    def _idle_detail(self) -> str:
+        return idle_detail_for_mode(self._dictation_mode, self._hotkey_label())
+
+    def _writing_fields(self) -> dict:
+        cleaner = self.cleaner
+        return {
+            "writing_model_present": bool(cleaner.model_present) if cleaner else False,
+            "writing_model_ready": bool(cleaner.is_ready) if cleaner else False,
+            "writing_model_busy": self._writing_model_busy,
+        }
+
+    def _load_writing_preferences(self) -> None:
+        if self.settings_store is None:
+            return
+        try:
+            payload = self.settings_store.load()
+        except Exception as exc:
+            self._logger.warning(
+                "Writing preferences load failed: %s", type(exc).__name__
+            )
+            return
+        self._dictation_mode = DictationMode.parse(payload.get("dictation_mode"))
+        tones = payload.get("app_tones")
+        if isinstance(tones, dict):
+            self._app_tones = {
+                str(bundle_id).strip(): str(prompt)
+                for bundle_id, prompt in tones.items()
+                if str(bundle_id).strip()
+            }
+
+    def _persist_writing_preferences(self) -> None:
+        if self.settings_store is None:
+            return
+        try:
+            payload = self.settings_store.load()
+            payload["dictation_mode"] = self._dictation_mode.value
+            payload["app_tones"] = dict(self._app_tones)
+            self.settings_store.save(payload)
+        except Exception as exc:
+            self._logger.warning(
+                "Writing preferences save failed: %s", type(exc).__name__
+            )
+
+    def _tone_for(self, target: TargetApp | None) -> str:
+        if target is None:
+            return ""
+        return str(self._app_tones.get(target.bundle_id) or "").strip()
+
+    def _read_selected_text(self, target: TargetApp | None) -> str:
+        if target is None:
+            return ""
+        reader = getattr(self.inserter, "read_selected_text", None)
+        if reader is None:
+            return ""
+        try:
+            return str(reader(target) or "").strip()
+        except Exception as exc:
+            self._logger.warning("Selected text read failed: %s", type(exc).__name__)
+            return ""
 
     def _readiness(self) -> Readiness:
         return Readiness(
@@ -459,7 +577,11 @@ class AppCoordinator:
             AppState.SHUTTING_DOWN,
         }
         if active:
-            self._store.update(readiness=readiness)
+            self._store.update(
+                readiness=readiness,
+                dictation_mode=self._dictation_mode,
+                **self._writing_fields(),
+            )
             self._publish()
             return
 
@@ -471,6 +593,8 @@ class AppCoordinator:
                 readiness=readiness,
                 error_action=None,
                 hands_free=False,
+                dictation_mode=self._dictation_mode,
+                **self._writing_fields(),
             )
         elif readiness.ready:
             self._store.transition(
@@ -622,6 +746,109 @@ class AppCoordinator:
             return profile.id if profile is not None else normalize_profile(None)
         return normalize_profile(stored)
 
+    def _download_writing_model(self, _payload=None) -> None:
+        self._prepare_writing_model(allow_download=True)
+
+    def _prepare_writing_model(self, *, allow_download: bool) -> None:
+        if self.cleaner is None or self._writing_model_busy:
+            return
+        self._writing_model_busy = True
+        self._store.update(**self._writing_fields())
+        self._publish()
+
+        def worker() -> None:
+            try:
+                self.cleaner.prepare(
+                    allow_download=allow_download,
+                    on_status=lambda text: self.submit(
+                        EventType.WRITING_MODEL_STATUS, text
+                    ),
+                )
+                self.submit(EventType.WRITING_MODEL_READY)
+            except Exception as exc:
+                self.submit(EventType.WRITING_MODEL_FAILED, exc)
+
+        self._executor.submit(worker)
+
+    def _writing_model_status(self, payload) -> None:
+        if self._store.snapshot.state in {
+            AppState.RECORDING,
+            AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
+            AppState.INSERTING,
+            AppState.SHUTTING_DOWN,
+        }:
+            self._store.update(**self._writing_fields())
+            self._publish()
+            return
+        self._store.update(
+            title=str(payload or "Preparing writing model"),
+            detail="Keep the app open. Text stays on this Mac.",
+            **self._writing_fields(),
+        )
+        self._publish()
+
+    def _writing_model_ready(self, _payload=None) -> None:
+        self._writing_model_busy = False
+        if self._store.snapshot.state is AppState.IDLE:
+            self._store.update(
+                title="Ready",
+                detail=self._ready_detail(),
+                **self._writing_fields(),
+            )
+            self._publish()
+            return
+        self._store.update(**self._writing_fields())
+        self._publish()
+
+    def _writing_model_failed(self, payload) -> None:
+        self._writing_model_busy = False
+        self._logger.warning("Writing model setup failed: %s", type(payload).__name__)
+        if self._store.snapshot.state is AppState.IDLE:
+            self._store.update(
+                title="Ready",
+                detail="Writing model could not be prepared. Dictate still inserts as spoken.",
+                **self._writing_fields(),
+            )
+            self._publish()
+            return
+        self._store.update(**self._writing_fields())
+        self._publish()
+
+    def _set_dictation_mode(self, payload) -> None:
+        mode = DictationMode.parse(payload)
+        self._dictation_mode = mode
+        self._persist_writing_preferences()
+        state = self._store.snapshot.state
+        if state is AppState.IDLE:
+            self._store.update(
+                title="Ready",
+                detail=self._ready_detail(),
+                dictation_mode=mode,
+                **self._writing_fields(),
+            )
+        else:
+            self._store.update(dictation_mode=mode, **self._writing_fields())
+        self._publish()
+        if (
+            mode is not DictationMode.DICTATE
+            and self.cleaner is not None
+            and not self.cleaner.is_ready
+        ):
+            self._prepare_writing_model(allow_download=not self.cleaner.model_present)
+
+    def _set_app_tones(self, payload) -> None:
+        if not isinstance(payload, dict):
+            return
+        self._app_tones = {
+            str(bundle_id).strip(): str(prompt)
+            for bundle_id, prompt in payload.items()
+            if str(bundle_id).strip()
+        }
+        self._persist_writing_preferences()
+        self._store.update(**self._writing_fields())
+        self._publish()
+
     def _model_status(self, payload) -> None:
         text = "Preparing speech model"
         progress = None
@@ -668,7 +895,7 @@ class AppCoordinator:
         return record_key_label(self._record_key)
 
     def _ready_detail(self) -> str:
-        return f"Hold {self._hotkey_label()} and speak. Release to insert."
+        return self._idle_detail()
 
     def _recording_detail(self) -> str:
         return f"Release {self._hotkey_label()} to insert. Press esc to cancel."
@@ -742,6 +969,19 @@ class AppCoordinator:
             )
             return
         self._target = target
+        if self._dictation_mode is DictationMode.COMMAND:
+            selected = self._read_selected_text(target)
+            if not selected:
+                self._target = None
+                self._set_error(
+                    "Select text to rewrite",
+                    f"Highlight the text in the other app, then hold {self._hotkey_label()} and speak an instruction.",
+                    action="dismiss",
+                )
+                return
+            self._selected_text = selected
+        else:
+            self._selected_text = ""
         self._store.update(
             title="Opening microphone",
             detail="Audio stays on this Mac.",
@@ -885,19 +1125,96 @@ class AppCoordinator:
             hands_free=False,
         )
         self._publish()
-        self._executor.submit(self._transcribe_worker, captured)
+        self._executor.submit(
+            self._transcribe_worker,
+            captured,
+            self._dictation_mode,
+            self._tone_for(self._target),
+            self._selected_text,
+        )
 
-    def _transcribe_worker(self, captured: CapturedAudio) -> None:
+    def _transcribe_worker(
+        self,
+        captured: CapturedAudio,
+        mode: DictationMode,
+        tone: str,
+        selected_text: str,
+    ) -> None:
         try:
             text = self.transcriber.transcribe(captured.path)
-            self.submit(EventType.TRANSCRIPTION_RESULT, (text, None))
         except Exception as exc:
             self.submit(EventType.TRANSCRIPTION_RESULT, ("", exc))
-        finally:
             captured.cleanup()
+            return
+        captured.cleanup()
+        text = str(text).strip()
+        if not text or mode is DictationMode.DICTATE or self.cleaner is None:
+            self.submit(EventType.TRANSCRIPTION_RESULT, (text, None))
+            return
+        if not getattr(self.cleaner, "is_ready", False):
+            self.submit(EventType.TRANSCRIPTION_RESULT, (text, None))
+            return
+        self.submit(EventType.CLEANUP_STATUS, self._cleanup_title(mode))
+        try:
+            cleaned = str(
+                self.cleaner.clean(
+                    text,
+                    mode=mode.value,
+                    tone=tone,
+                    selected_text=selected_text,
+                )
+                or ""
+            ).strip()
+        except Exception as exc:
+            self._logger.warning("Writing cleanup failed: %s", type(exc).__name__)
+            if mode is DictationMode.COMMAND:
+                self.submit(
+                    EventType.TRANSCRIPTION_RESULT, (text, CommandCleanupError())
+                )
+                return
+            self.submit(EventType.TRANSCRIPTION_RESULT, (text, None))
+            return
+        if mode is DictationMode.COMMAND and not cleaned:
+            self.submit(EventType.TRANSCRIPTION_RESULT, (text, CommandCleanupError()))
+            return
+        self.submit(EventType.TRANSCRIPTION_RESULT, (cleaned or text, None))
+
+    def _cleanup_title(self, mode: DictationMode) -> str:
+        if mode is DictationMode.COMMAND:
+            return "Rewriting selected text"
+        if mode is DictationMode.WRITE:
+            return "Cleaning up text"
+        if mode is DictationMode.DICTATE:
+            return "Transcribing"
+        unhandled: DictationMode = mode
+        raise AssertionError(f"unhandled dictation mode: {unhandled}")
+
+    def _cleanup_status(self, payload) -> None:
+        if self._store.snapshot.state is not AppState.TRANSCRIBING:
+            return
+        self._store.update(
+            title=str(payload or "Cleaning up text"),
+            detail="Processing locally on this Mac.",
+        )
+        self._publish()
 
     def _transcription_result(self, payload) -> None:
         text, error = payload
+        if isinstance(error, CommandCleanupError):
+            self._last_transcript = str(text).strip()
+            if self._last_transcript:
+                try:
+                    self._transcript_store.save(self._last_transcript)
+                except Exception as exc:
+                    self._logger.warning(
+                        "Last transcript save failed: %s", type(exc).__name__
+                    )
+                self._store.update(has_last_transcript=True)
+            self._copy_after_insert_failure(
+                text,
+                "The writing model could not rewrite the selection. Your selected text was left unchanged.",
+            )
+            return
         if error is not None:
             self._logger.warning("Transcription failed: %s", type(error).__name__)
             self._set_error(
@@ -950,6 +1267,7 @@ class AppCoordinator:
             )
             return
         self._target = None
+        self._selected_text = ""
         if result.warning:
             self._set_error(
                 "Text inserted with a clipboard warning",
@@ -978,6 +1296,7 @@ class AppCoordinator:
                 "Transcript copy fallback failed: %s", type(exc).__name__
             )
         self._target = None
+        self._selected_text = ""
         self._set_error(
             "Transcript copied" if copied else "Transcript is available in the menu",
             detail
@@ -1013,6 +1332,7 @@ class AppCoordinator:
             error_action=None,
             target_screen=None,
         )
+        self._selected_text = ""
         self._publish()
 
     def _audio_limit(self, _payload=None) -> None:
@@ -1186,7 +1506,7 @@ class AppCoordinator:
             next_state,
             title=title,
             detail=(
-                "Hold fn and speak. Release to insert."
+                self._ready_detail()
                 if next_state is AppState.IDLE
                 else "The transcript is ready in the file window."
             ),

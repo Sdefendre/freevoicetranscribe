@@ -19,9 +19,11 @@ IMPORT_SUCCESS_SENTINEL = b"FVT_BUNDLE_IMPORT_PROBE_OK"
 APP_READY_SENTINEL = b"FVT_APP_READY"
 REQUIRED_PYTHON_MODULES = (
     "fvt.app",
+    "fvt.cleanup",
     "fvt.coordinator",
     "fvt.file_audio",
     "lightning_whisper_mlx.lightning",
+    "mlx_lm",
     "mlx",
     "mlx._reprlib_fix",
     "numba",
@@ -468,7 +470,7 @@ def verify_bundle(
         _fail("bundle executable is missing or not executable")
     if (resources / ".venv").exists():
         _fail("a copied virtualenv was found")
-    if (resources / "mlx_models").exists():
+    if (resources / "mlx_models").exists() or (resources / "mlx_lm_models").exists():
         _fail("models must live in Application Support, not the signed bundle")
 
     for path in contents.rglob("*"):

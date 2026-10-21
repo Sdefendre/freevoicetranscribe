@@ -20,8 +20,13 @@ from .file_audio import (
     write_transcript_text,
 )
 from .models import PROFILE_ORDER, profile_for
-from .state import AppSnapshot, AppState, PermissionState
-from .storage import RECORD_KEY_IDS, RECORD_KEY_MENU_LABELS, normalize_record_key
+from .state import AppSnapshot, AppState, DictationMode, PermissionState
+from .storage import (
+    KNOWN_APP_NAMES,
+    RECORD_KEY_IDS,
+    RECORD_KEY_MENU_LABELS,
+    normalize_record_key,
+)
 
 HUD_WIDTH = 424
 HUD_HEIGHT = 82
@@ -847,7 +852,7 @@ class SetupWindow(NSObject):
 
 
 class SettingsWindow(NSObject):
-    """Preferences for the push-to-talk hotkey and the local speech model."""
+    """Preferences for the hotkey, speech model, and optional writing model."""
 
     def initWithCoordinator_(self, coordinator):
         self = objc.super(SettingsWindow, self).init()
@@ -861,6 +866,14 @@ class SettingsWindow(NSObject):
         self._picker = None
         self._progress = None
         self._download_button = None
+        self._writing_status = None
+        self._writing_button = None
+        self._tone_scroll = None
+        self._tone_list = None
+        self._bundle_field = None
+        self._tone_field = None
+        self._tone_fields: dict[object, str] = {}
+        self._remove_buttons: dict[object, str] = {}
         self._snapshot = AppSnapshot()
         self._syncing_picker = False
         return self
@@ -869,7 +882,7 @@ class SettingsWindow(NSObject):
     def _ensure_window(self) -> None:
         if self._window is not None:
             return
-        rect = AppKit.NSMakeRect(0, 0, 540, 480)
+        rect = AppKit.NSMakeRect(0, 0, 540, 780)
         self._window = (
             AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
                 rect,
@@ -886,24 +899,24 @@ class SettingsWindow(NSObject):
         content = self._window.contentView()
 
         hotkey_title = _label(
-            AppKit.NSMakeRect(28, 436, 484, 28),
+            AppKit.NSMakeRect(28, 736, 484, 28),
             "Dictation shortcut",
             size=19,
             bold=True,
         )
         hotkey_subtitle = _label(
-            AppKit.NSMakeRect(28, 388, 484, 44),
+            AppKit.NSMakeRect(28, 688, 484, 44),
             "Hold the hotkey to record, then release to insert. Double-tap to lock recording, then tap again to finish.",
             size=12,
         )
         hotkey_subtitle.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
         hotkey_name = _label(
-            AppKit.NSMakeRect(28, 352, 210, 22),
+            AppKit.NSMakeRect(28, 652, 210, 22),
             "Push-to-talk hotkey",
             bold=True,
         )
         popup = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
-            AppKit.NSMakeRect(28, 316, 220, 26),
+            AppKit.NSMakeRect(28, 616, 220, 26),
             False,
         )
         for key_id in RECORD_KEY_IDS:
@@ -917,47 +930,99 @@ class SettingsWindow(NSObject):
         )
         self._hotkey_popup = popup
         hotkey_hint = _label(
-            AppKit.NSMakeRect(28, 276, 484, 36),
+            AppKit.NSMakeRect(28, 576, 484, 36),
             "Esc cancels. While you hold the hotkey, Space also locks recording.",
             size=12,
         )
         hotkey_hint.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
 
         model_title = _label(
-            AppKit.NSMakeRect(28, 236, 484, 22),
+            AppKit.NSMakeRect(28, 536, 484, 22),
             "Speech model",
             size=17,
             bold=True,
         )
         intro = _label(
-            AppKit.NSMakeRect(28, 196, 484, 36),
+            AppKit.NSMakeRect(28, 496, 484, 36),
             "Choose a local model. Fast is smaller and quicker. Accurate is the default and more precise. Both stay on this Mac.",
             size=12,
         )
         intro.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
         self._picker = _segmented_profile_picker(
-            AppKit.NSMakeRect(28, 160, 220, 28),
+            AppKit.NSMakeRect(28, 460, 220, 28),
             self,
             b"modelProfileChanged:",
         )
         self._summary = _label(
-            AppKit.NSMakeRect(28, 116, 484, 36),
+            AppKit.NSMakeRect(28, 416, 484, 36),
             profile_for("accurate").detail,
             size=12,
         )
         self._summary.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
         self._status = _label(
-            AppKit.NSMakeRect(28, 88, 484, 22),
+            AppKit.NSMakeRect(28, 388, 484, 22),
             "Checking…",
             size=12,
         )
-        self._progress = _progress_bar(AppKit.NSMakeRect(28, 62, 280, 12))
+        self._progress = _progress_bar(AppKit.NSMakeRect(28, 362, 280, 12))
         self._download_button = _button(
-            AppKit.NSMakeRect(376, 16, 140, 32),
+            AppKit.NSMakeRect(376, 324, 140, 32),
             "Download Model",
             self,
             b"downloadPressed:",
         )
+        writing_title = _label(
+            AppKit.NSMakeRect(28, 284, 484, 22),
+            "Writing model",
+            size=17,
+            bold=True,
+        )
+        writing_intro = _label(
+            AppKit.NSMakeRect(28, 248, 484, 32),
+            "Optional. Write and Command can clean up dictation with a small local model (~1 GB). File transcription stays raw.",
+            size=12,
+        )
+        writing_intro.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+        self._writing_status = _label(
+            AppKit.NSMakeRect(28, 220, 484, 22),
+            "Checking…",
+            size=12,
+        )
+        self._writing_button = _button(
+            AppKit.NSMakeRect(376, 184, 140, 32),
+            "Download Model",
+            self,
+            b"writingModelPressed:",
+        )
+        tones_title = _label(
+            AppKit.NSMakeRect(28, 152, 484, 22),
+            "Per-app tone",
+            size=15,
+            bold=True,
+        )
+        self._bundle_field = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(28, 120, 160, 24)
+        )
+        self._bundle_field.setPlaceholderString_("Bundle ID")
+        self._tone_field = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(196, 120, 200, 24)
+        )
+        self._tone_field.setPlaceholderString_("Tone prompt")
+        add_button = _button(
+            AppKit.NSMakeRect(404, 116, 108, 28),
+            "Add",
+            self,
+            b"addTonePressed:",
+        )
+        self._tone_scroll = AppKit.NSScrollView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(28, 12, 484, 100)
+        )
+        self._tone_scroll.setHasVerticalScroller_(True)
+        self._tone_scroll.setBorderType_(AppKit.NSBezelBorder)
+        self._tone_list = AppKit.NSView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(0, 0, 484, 100)
+        )
+        self._tone_scroll.setDocumentView_(self._tone_list)
         for view in (
             hotkey_title,
             hotkey_subtitle,
@@ -971,9 +1036,19 @@ class SettingsWindow(NSObject):
             self._status,
             self._progress,
             self._download_button,
+            writing_title,
+            writing_intro,
+            self._writing_status,
+            self._writing_button,
+            tones_title,
+            self._bundle_field,
+            self._tone_field,
+            add_button,
+            self._tone_scroll,
         ):
             content.addSubview_(view)
         self._sync_popup()
+        self._rebuild_tone_rows()
 
     @objc.python_method
     def _sync_popup(self) -> None:
@@ -1046,6 +1121,76 @@ class SettingsWindow(NSObject):
         )
         self._syncing_picker = False
         _sync_progress_bar(self._progress, readiness.model_download_progress)
+        self._update_writing_button(snapshot)
+        self._rebuild_tone_rows()
+
+    @objc.python_method
+    def _update_writing_button(self, snapshot: AppSnapshot) -> None:
+        if snapshot.writing_model_ready:
+            status = "Ready — runs locally"
+            title = "Ready"
+            enabled = False
+        elif snapshot.writing_model_busy:
+            status = "Preparing… keep the app open"
+            title = "Preparing…"
+            enabled = False
+        elif snapshot.writing_model_present:
+            status = "Downloaded but not loaded"
+            title = "Load Model"
+            enabled = True
+        else:
+            status = "One-time download, about 1 GB"
+            title = "Download Model"
+            enabled = True
+        _set_label_text(
+            self._writing_status,
+            status,
+            accessibility_label=f"Local writing model status: {status}",
+        )
+        _set_button_state(
+            self._writing_button, title, enabled=enabled, help_text=status
+        )
+
+    @objc.python_method
+    def _rebuild_tone_rows(self) -> None:
+        if self._tone_list is None:
+            return
+        for child in list(self._tone_list.subviews() or []):
+            child.removeFromSuperview()
+        self._tone_fields = {}
+        self._remove_buttons = {}
+        tones = {}
+        reader = getattr(self._coordinator, "app_tones", None)
+        if reader is not None:
+            try:
+                tones = dict(reader())
+            except Exception:
+                tones = {}
+        row_height = 28
+        height = max(100, row_height * max(1, len(tones)))
+        self._tone_list.setFrame_(AppKit.NSMakeRect(0, 0, 464, height))
+        for index, (bundle_id, prompt) in enumerate(sorted(tones.items())):
+            y = height - ((index + 1) * row_height) + 2
+            name = KNOWN_APP_NAMES.get(bundle_id, bundle_id)
+            field = AppKit.NSTextField.alloc().initWithFrame_(
+                AppKit.NSMakeRect(8, y, 350, 22)
+            )
+            field.setStringValue_(str(prompt))
+            field.setTarget_(self)
+            field.setAction_(b"toneEdited:")
+            field.setAccessibilityLabel_(
+                name if name == bundle_id else f"{name} tone"
+            )
+            self._tone_fields[field] = bundle_id
+            remove = _button(
+                AppKit.NSMakeRect(364, y - 2, 88, 26),
+                "Remove",
+                self,
+                b"removeTonePressed:",
+            )
+            self._remove_buttons[remove] = bundle_id
+            self._tone_list.addSubview_(field)
+            self._tone_list.addSubview_(remove)
 
     def hotkeyChanged_(self, sender) -> None:
         item = sender.selectedItem()
@@ -1065,6 +1210,40 @@ class SettingsWindow(NSObject):
 
     def downloadPressed_(self, _sender) -> None:
         self._coordinator.download_model()
+
+    def writingModelPressed_(self, _sender) -> None:
+        downloader = getattr(self._coordinator, "download_writing_model", None)
+        if downloader is not None:
+            downloader()
+
+    def addTonePressed_(self, _sender) -> None:
+        bundle_id = str(self._bundle_field.stringValue() or "").strip()
+        prompt = str(self._tone_field.stringValue() or "").strip()
+        if not bundle_id or not prompt:
+            return
+        tones = dict(self._coordinator.app_tones())
+        tones[bundle_id] = prompt
+        self._coordinator.set_app_tones(tones)
+        self._bundle_field.setStringValue_("")
+        self._tone_field.setStringValue_("")
+        self._rebuild_tone_rows()
+
+    def toneEdited_(self, sender) -> None:
+        bundle_id = self._tone_fields.get(sender)
+        if not bundle_id:
+            return
+        tones = dict(self._coordinator.app_tones())
+        tones[bundle_id] = str(sender.stringValue() or "")
+        self._coordinator.set_app_tones(tones)
+
+    def removeTonePressed_(self, sender) -> None:
+        bundle_id = self._remove_buttons.get(sender)
+        if not bundle_id:
+            return
+        tones = dict(self._coordinator.app_tones())
+        tones.pop(bundle_id, None)
+        self._coordinator.set_app_tones(tones)
+        self._rebuild_tone_rows()
 
 
 class FileDropView(AppKit.NSView):
@@ -1469,6 +1648,12 @@ class StatusBarApp(rumps.App):
         self._instruction_item = rumps.MenuItem(
             "Hold fn and speak. Release to insert.", callback=None
         )
+        self._mode_dictate = rumps.MenuItem("Dictate", callback=self._set_mode_dictate)
+        self._mode_write = rumps.MenuItem("Write", callback=self._set_mode_write)
+        self._mode_command = rumps.MenuItem("Command", callback=self._set_mode_command)
+        self._mode_item = rumps.MenuItem(
+            "Mode", [self._mode_dictate, self._mode_write, self._mode_command]
+        )
         self._copy_item = rumps.MenuItem(
             "Copy Last Transcript", callback=self._copy_last
         )
@@ -1487,6 +1672,7 @@ class StatusBarApp(rumps.App):
         self.menu = [
             self._status_item,
             self._instruction_item,
+            self._mode_item,
             None,
             self._copy_item,
             self._insert_item,
@@ -1528,6 +1714,9 @@ class StatusBarApp(rumps.App):
             AppState.BOOTING,
         }
         self._file_item.set_callback(None if busy else self._open_file_transcribe)
+        self._mode_dictate.state = snapshot.dictation_mode is DictationMode.DICTATE
+        self._mode_write.state = snapshot.dictation_mode is DictationMode.WRITE
+        self._mode_command.state = snapshot.dictation_mode is DictationMode.COMMAND
         self.setup_window.update(snapshot)
         self.settings_window.update(snapshot)
         self.file_window.update(snapshot)
@@ -1556,6 +1745,15 @@ class StatusBarApp(rumps.App):
 
     def _open_settings(self, _sender) -> None:
         self.show_settings()
+
+    def _set_mode_dictate(self, _sender) -> None:
+        self._coordinator.set_dictation_mode(DictationMode.DICTATE.value)
+
+    def _set_mode_write(self, _sender) -> None:
+        self._coordinator.set_dictation_mode(DictationMode.WRITE.value)
+
+    def _set_mode_command(self, _sender) -> None:
+        self._coordinator.set_dictation_mode(DictationMode.COMMAND.value)
 
     def _open_file_transcribe(self, _sender) -> None:
         self.file_window.show()

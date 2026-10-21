@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fvt.contracts import CapturedAudio, InsertResult, TargetApp
 from fvt.coordinator import AppCoordinator
 from fvt.file_audio import SAMPLE_RATE, AudioFileCancelled
-from fvt.state import AppState, PermissionState
+from fvt.state import AppState, DictationMode, PermissionState
 
 
 def wait_for(predicate, timeout=2.0):
@@ -215,14 +215,18 @@ class FakeAudio:
 
 
 class FakeInserter:
-    def __init__(self, *, fail=False):
+    def __init__(self, *, fail=False, selected_text=""):
         self.fail = fail
         self.inserted = []
         self.copied = []
+        self.selected_text = selected_text
         self.target = TargetApp(pid=123, name="Editor", bundle_id="editor.app")
 
     def capture_target(self):
         return self.target
+
+    def read_selected_text(self, _target):
+        return self.selected_text
 
     def insert(self, text, target):
         if self.fail:
@@ -232,6 +236,75 @@ class FakeInserter:
 
     def copy(self, text):
         self.copied.append(text)
+
+
+class FakeCleaner:
+    def __init__(
+        self, *, ready=True, present=True, fail=False, result=None, auto_ready=True
+    ):
+        self._ready = ready
+        self._present = present
+        self.fail = fail
+        self.result = result
+        self.auto_ready = auto_ready
+        self.calls = []
+        self.prepare_calls = []
+
+    @property
+    def is_ready(self):
+        return self._ready
+
+    @property
+    def model_present(self):
+        return self._present
+
+    def prepare(self, *, allow_download, on_status=None):
+        if on_status:
+            on_status("Preparing writing model")
+        self.prepare_calls.append(allow_download)
+        if self.auto_ready:
+            self._present = True
+            self._ready = True
+
+    def clean(self, text, *, mode, tone="", selected_text=""):
+        self.calls.append(
+            {
+                "text": text,
+                "mode": mode,
+                "tone": tone,
+                "selected_text": selected_text,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("writing model failed")
+        if self.result is not None:
+            return self.result
+        return f"cleaned:{text}"
+
+
+class FakeSettings:
+    def __init__(self, payload=None):
+        self.payload = payload or {
+            "dictation_mode": "dictate",
+            "app_tones": {"editor.app": "Formal and complete."},
+            "shortcuts": {"record": "fn", "hands_free": "fn+space", "cancel": "esc"},
+            "speech_model_profile": "accurate",
+        }
+        self.saved = []
+
+    def load(self):
+        return dict(self.payload)
+
+    def save(self, payload):
+        self.payload = dict(payload)
+        self.saved.append(dict(payload))
+
+    def speech_model_profile(self):
+        return self.payload.get("speech_model_profile", "accurate")
+
+    def save_speech_model_profile(self, profile_id):
+        self.payload["speech_model_profile"] = profile_id
+        self.saved.append(dict(self.payload))
 
 
 class CoordinatorIntegrationTests(unittest.TestCase):
@@ -317,6 +390,16 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         self.assertEqual(self.inserter.copied, ["hello world"])
         self.assertTrue(self.coordinator.snapshot.has_last_transcript)
 
+    def test_dictate_mode_skips_the_writing_model(self):
+        cleaner = FakeCleaner()
+        self.coordinator.cleaner = cleaner
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+        self.assertEqual(cleaner.calls, [])
+
     def test_double_tap_locks_and_later_tap_finishes(self):
         self.coordinator._tap_max_hold = 0.2
         self.coordinator._double_tap_window = 0.3
@@ -372,6 +455,19 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         self.assertEqual(self.inserter.inserted, [])
         self.assertTrue(self.coordinator.snapshot.has_last_transcript)
         self.assertEqual(self.transcript_store.saved, ["hello world"])
+
+    def test_file_transcription_does_not_use_the_writing_model(self):
+        cleaner = FakeCleaner()
+        self.coordinator.cleaner = cleaner
+        self.coordinator.set_dictation_mode("write")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.WRITE
+        )
+        path = self._write_wav("meeting.wav", 75)
+        self.coordinator.transcribe_audio_file(path)
+        wait_for(lambda: self.coordinator.file_result == "hello world")
+        self.assertEqual(cleaner.calls, [])
+        self.assertEqual(self.inserter.inserted, [])
 
     def test_file_transcription_trims_overlapping_chunk_text(self):
         path = self._write_wav("meeting.wav", 75)
@@ -460,6 +556,130 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         wait_for(lambda: self.coordinator.file_result == "hello world")
         self.assertEqual(self.inserter.inserted, [])
         self.assertTrue(self.coordinator.snapshot.has_last_transcript)
+
+
+class CoordinatorWritingTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.audio = FakeAudio(self.temp.name)
+        self.transcriber = FakeTranscriber()
+        self.inserter = FakeInserter(selected_text="draft email")
+        self.hotkey = FakeHotkey()
+        self.permissions = FakePermissions()
+        self.transcript_store = FakeTranscriptStore()
+        self.cleaner = FakeCleaner()
+        self.settings = FakeSettings()
+        self.coordinator = AppCoordinator(
+            audio=self.audio,
+            transcriber=self.transcriber,
+            inserter=self.inserter,
+            hotkey=self.hotkey,
+            permissions=self.permissions,
+            transcript_store=self.transcript_store,
+            settings_store=self.settings,
+            cleaner=self.cleaner,
+            tap_max_hold=0,
+            temp_dir=Path(self.temp.name),
+        )
+        self.coordinator.start()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+
+    def tearDown(self):
+        self.coordinator.shutdown()
+        self.temp.cleanup()
+
+    def test_write_mode_inserts_cleaned_text_and_passes_app_tone(self):
+        self.coordinator.set_dictation_mode("write")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.WRITE
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "cleaned:hello world")
+        self.assertEqual(self.cleaner.calls[0]["mode"], "write")
+        self.assertEqual(self.cleaner.calls[0]["tone"], "Formal and complete.")
+        self.assertEqual(self.transcript_store.saved, ["cleaned:hello world"])
+
+    def test_write_mode_falls_back_to_raw_transcript_on_cleanup_failure(self):
+        self.cleaner.fail = True
+        self.coordinator.set_dictation_mode("write")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.WRITE
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+
+    def test_command_mode_rewrites_selected_text(self):
+        self.cleaner.result = "Please send the draft today."
+        self.coordinator.set_dictation_mode("command")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "Please send the draft today.")
+        self.assertEqual(self.cleaner.calls[0]["mode"], "command")
+        self.assertEqual(self.cleaner.calls[0]["selected_text"], "draft email")
+
+    def test_command_mode_requires_selected_text_before_recording(self):
+        self.inserter.selected_text = ""
+        self.coordinator.set_dictation_mode("command")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.ERROR)
+        self.assertEqual(self.coordinator.snapshot.title, "Select text to rewrite")
+        self.assertEqual(self.transcriber.calls, 0)
+        self.assertEqual(self.inserter.inserted, [])
+
+    def test_command_mode_cleanup_failure_leaves_selection_untouched(self):
+        self.cleaner.fail = True
+        self.coordinator.set_dictation_mode("command")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.ERROR)
+        self.assertEqual(self.inserter.inserted, [])
+        self.assertEqual(self.inserter.copied, ["hello world"])
+        self.assertIn("left unchanged", self.coordinator.snapshot.detail)
+
+    def test_write_mode_without_ready_model_inserts_raw_transcript(self):
+        self.cleaner.auto_ready = False
+        self.cleaner._ready = False
+        self.coordinator.set_dictation_mode("write")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.WRITE
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+        self.assertEqual(self.cleaner.calls, [])
+
+    def test_write_mode_idle_detail_uses_the_configured_hotkey(self):
+        self.coordinator.set_record_key("f13")
+        self.coordinator.set_dictation_mode("write")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.WRITE
+        )
+        self.assertIn("F13", self.coordinator.snapshot.detail)
+        self.coordinator.set_dictation_mode("command")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
+        )
+        self.assertIn("F13", self.coordinator.snapshot.detail)
 
 
 class CoordinatorSetupTests(unittest.TestCase):

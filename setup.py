@@ -15,7 +15,7 @@ OPTIONS = {
     "argv_emulation": False,
     "extra_scripts": [str(ROOT / "scripts" / "bundle_import_probe.py")],
     "iconfile": str(ICON),
-    "packages": ["fvt", "lightning_whisper_mlx"],
+    "packages": ["fvt", "lightning_whisper_mlx", "mlx_lm", "transformers"],
     "includes": [
         "AppKit",
         "ApplicationServices",
@@ -24,6 +24,7 @@ OPTIONS = {
         # Imported dynamically by the MLX native extension during PyInit_core.
         # modulegraph cannot discover this dependency from Python source.
         "mlx._reprlib_fix",
+        "mlx_lm",
         "numba",
         "numpy",
         "pyaudio",

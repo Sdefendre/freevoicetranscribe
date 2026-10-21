@@ -18,6 +18,7 @@ huggingface_hub==1.23.0
 idna==3.18
 lightning-whisper-mlx==0.0.10
 llvmlite==0.48.0
+mlx-lm==0.30.7
 mlx-metal==0.32.0
 mlx==0.32.0
 more-itertools==11.1.0
@@ -26,6 +27,7 @@ networkx==3.6.1
 numba==0.66.0
 numpy==2.4.2
 packaging==26.2
+protobuf==6.31.1
 pynput==1.8.1
 pyobjc-core==12.1
 pyobjc-framework-ApplicationServices==12.1
@@ -35,11 +37,15 @@ pyobjc-framework-Quartz==12.1
 regex==2026.7.10
 requests==2.34.2
 rumps==0.4.0
+safetensors==0.5.3
 scipy==1.17.1
+sentencepiece==0.2.2
 six==1.17.0
 sympy==1.14.0
 tiktoken==0.3.3
+tokenizers==0.22.2
 torch==2.13.0
 tqdm==4.68.4
+transformers==5.12.0
 typing_extensions==4.16.0
 urllib3==2.7.0

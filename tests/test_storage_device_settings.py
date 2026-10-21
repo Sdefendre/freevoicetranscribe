@@ -17,6 +17,8 @@ class DeviceSettingsStoreTests(unittest.TestCase):
             self.assertIn("shortcuts", payload)
             self.assertTrue(payload["check_for_updates"])
             self.assertEqual(payload["speech_model_profile"], DEFAULT_PROFILE_ID)
+            self.assertEqual(payload["dictation_mode"], "dictate")
+            self.assertIn("com.apple.mail", payload["app_tones"])
 
     def test_save_and_reload_normalizes_payload(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -35,6 +37,8 @@ class DeviceSettingsStoreTests(unittest.TestCase):
             self.assertIn("feedback_url", reloaded)
             self.assertEqual(reloaded["shortcuts"]["record"], "fn")
             self.assertEqual(reloaded["speech_model_profile"], DEFAULT_PROFILE_ID)
+            self.assertEqual(reloaded["dictation_mode"], "dictate")
+            self.assertIn("com.apple.mail", reloaded["app_tones"])
 
     def test_invalid_record_shortcut_falls_back_to_fn(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -79,6 +83,19 @@ class DeviceSettingsStoreTests(unittest.TestCase):
             self.assertEqual(reloaded["shortcuts"]["record"], "f13")
             self.assertEqual(reloaded["shortcuts"]["hands_free"], "f13+space")
             self.assertEqual(reloaded["speech_model_profile"], "fast")
+
+    def test_invalid_mode_and_tones_are_normalized(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = DeviceSettingsStore(path=Path(temp) / "device-settings.json")
+            store.save(
+                {
+                    "dictation_mode": "shout",
+                    "app_tones": {"com.apple.mail": "Formal", "": "ignore me"},
+                }
+            )
+            reloaded = store.load()
+            self.assertEqual(reloaded["dictation_mode"], "dictate")
+            self.assertEqual(reloaded["app_tones"], {"com.apple.mail": "Formal"})
 
 
 if __name__ == "__main__":

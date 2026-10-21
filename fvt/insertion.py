@@ -155,6 +155,12 @@ class MacAccessibility:
         except Exception:
             return current == expected
 
+    def selected_text(self, element) -> str:
+        if element is None or AX is None:
+            return ""
+        value = self._attribute(element, AX.kAXSelectedTextAttribute)
+        return str(value).strip() if isinstance(value, str) else ""
+
 
 class MacWindowLocator:
     """Resolve the display containing the captured app's front window."""
@@ -279,6 +285,21 @@ class MacTextInserter:
             bundle_id=bundle_id,
             screen=self._window_locator.screen_for_pid(pid),
         )
+
+    def read_selected_text(self, target: TargetApp) -> str:
+        """Read the current selection without consuming the captured target."""
+        if (
+            self._captured_key != (target.pid, target.bundle_id)
+            or self._captured_element is None
+        ):
+            return ""
+        reader = getattr(self._accessibility, "selected_text", None)
+        if reader is None:
+            return ""
+        try:
+            return str(reader(self._captured_element) or "").strip()
+        except Exception:
+            return ""
 
     def _clear_capture(self) -> None:
         self._captured_key = None

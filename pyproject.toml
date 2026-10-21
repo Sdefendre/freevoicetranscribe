@@ -12,6 +12,7 @@ license = {text = "MIT"}
 authors = [{ name = "Steve Defendre" }]
 dependencies = [
     "lightning-whisper-mlx==0.0.10",
+    "mlx-lm==0.30.7",
     "numpy==2.4.2",
     "PyAudio==0.2.14",
     "pynput==1.8.1",

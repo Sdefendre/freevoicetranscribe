@@ -56,6 +56,21 @@ def normalize_shortcuts(shortcuts: object) -> dict[str, str]:
     return default_shortcuts(shortcuts.get("record"))
 
 
+# Optional writing-model styles keyed by the frontmost app's bundle ID.
+DEFAULT_APP_TONES = {
+    "com.tinyspeck.slackmacgap": (
+        "Casual and concise, like a Slack message. Short sentences are fine."
+    ),
+    "com.apple.mail": (
+        "Clear, complete sentences suitable for email. Stay polite and direct."
+    ),
+}
+
+KNOWN_APP_NAMES = {
+    "com.tinyspeck.slackmacgap": "Slack",
+    "com.apple.mail": "Mail",
+}
+
 @dataclass(frozen=True, slots=True)
 class AppPaths:
     support: Path
@@ -83,6 +98,10 @@ class AppPaths:
     @property
     def model_root(self) -> Path:
         return self.support / "mlx_models"
+
+    @property
+    def writing_model_root(self) -> Path:
+        return self.support / "mlx_lm_models"
 
     def device_settings_path(self) -> Path:
         return self.support / "device-settings.json"
@@ -273,6 +292,8 @@ class DeviceSettingsStore:
             "check_for_updates": True,
             "feedback_url": "https://github.com/Sdefendre/freevoicetranscribe/issues/new",
             "speech_model_profile": DEFAULT_PROFILE_ID,
+            "dictation_mode": "dictate",
+            "app_tones": dict(DEFAULT_APP_TONES),
         }
 
     def load(self) -> dict:
@@ -288,7 +309,7 @@ class DeviceSettingsStore:
         defaults["speech_model_profile"] = normalize_profile(
             defaults.get("speech_model_profile")
         )
-        return defaults
+        return self._normalize(defaults)
 
     def save(self, payload: dict) -> None:
         normalized = dict(self._defaults())
@@ -299,7 +320,7 @@ class DeviceSettingsStore:
         normalized["speech_model_profile"] = normalize_profile(
             normalized.get("speech_model_profile")
         )
-        _save_json_atomic(self.path, normalized)
+        _save_json_atomic(self.path, self._normalize(normalized))
 
     def speech_model_profile(self) -> str:
         return normalize_profile(self.load().get("speech_model_profile"))
@@ -308,3 +329,19 @@ class DeviceSettingsStore:
         payload = self.load()
         payload["speech_model_profile"] = normalize_profile(profile_id)
         self.save(payload)
+
+    def _normalize(self, payload: dict) -> dict:
+        mode = str(payload.get("dictation_mode") or "dictate")
+        if mode not in {"dictate", "write", "command"}:
+            mode = "dictate"
+        payload["dictation_mode"] = mode
+        tones = payload.get("app_tones")
+        if not isinstance(tones, dict):
+            payload["app_tones"] = dict(DEFAULT_APP_TONES)
+            return payload
+        payload["app_tones"] = {
+            str(bundle_id).strip(): str(prompt)
+            for bundle_id, prompt in tones.items()
+            if str(bundle_id).strip()
+        }
+        return payload

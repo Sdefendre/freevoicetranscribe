@@ -96,12 +96,16 @@ class FakeKeyboard:
 class FakeAccessibility:
     def __init__(self):
         self.focused = object()
+        self.selected = "already highlighted"
 
     def capture_focused_editable(self, _pid):
         return self.focused
 
     def focused_element_matches(self, _pid, expected):
         return self.focused is expected
+
+    def selected_text(self, element):
+        return self.selected if element is self.focused else ""
 
 
 class FakeWindowLocator:
@@ -195,6 +199,20 @@ class InsertionTests(unittest.TestCase):
         )
         target = self._capture(service)
         self.assertEqual(target.screen, FakeWindowLocator.screen)
+
+    def test_read_selected_text_uses_the_captured_element(self):
+        service, _accessibility = self._service(
+            FakeApplication(), FakeClipboard(), FakeKeyboard()
+        )
+        target = self._capture(service)
+        self.assertEqual(service.read_selected_text(target), "already highlighted")
+
+    def test_read_selected_text_is_empty_without_a_matching_capture(self):
+        service, _accessibility = self._service(
+            FakeApplication(), FakeClipboard(), FakeKeyboard()
+        )
+        target = TargetApp(pid=123, name="Test", bundle_id="test.app")
+        self.assertEqual(service.read_selected_text(target), "")
 
 
 if __name__ == "__main__":
