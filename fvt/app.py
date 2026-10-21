@@ -11,6 +11,7 @@ from .audio import AudioRecorder
 from .coordinator import AppCoordinator
 from .hotkey import FnListener
 from .insertion import MacTextInserter
+from .models import model_name_for_profile
 from .permissions import MacPermissionService
 from .storage import (
     AppPaths,
@@ -44,13 +45,18 @@ def create_application(paths: AppPaths | None = None):
         record_key=record_key,
         logger=logger.getChild("hotkey"),
     )
+    model_profile = settings.speech_model_profile()
     coordinator = AppCoordinator(
         audio=AudioRecorder(
             paths.temp,
             logger=logger.getChild("audio"),
             input_device_index=settings.load().get("input_device_index"),
         ),
-        transcriber=MLXTranscriber(paths, logger=logger.getChild("transcription")),
+        transcriber=MLXTranscriber(
+            paths,
+            model_name=model_name_for_profile(model_profile),
+            logger=logger.getChild("transcription"),
+        ),
         inserter=MacTextInserter(logger=logger.getChild("insertion")),
         hotkey=hotkey,
         permissions=MacPermissionService(logger=logger.getChild("permissions")),

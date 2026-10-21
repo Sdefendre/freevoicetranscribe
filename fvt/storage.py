@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from .models import DEFAULT_PROFILE_ID, normalize_profile
+
 APP_DIR_NAME = "FreeVoiceTranscribe"
 
 # Push-to-talk keys that Settings may store. Detection for each id lives in hotkey.py.
@@ -269,6 +271,7 @@ class DeviceSettingsStore:
             "replay_last_recording": False,
             "check_for_updates": True,
             "feedback_url": "https://github.com/Sdefendre/freevoicetranscribe/issues/new",
+            "speech_model_profile": DEFAULT_PROFILE_ID,
         }
 
     def load(self) -> dict:
@@ -281,6 +284,9 @@ class DeviceSettingsStore:
         defaults = self._defaults()
         defaults.update(payload)
         defaults["shortcuts"] = normalize_shortcuts(payload.get("shortcuts"))
+        defaults["speech_model_profile"] = normalize_profile(
+            defaults.get("speech_model_profile")
+        )
         return defaults
 
     def save(self, payload: dict) -> None:
@@ -289,4 +295,15 @@ class DeviceSettingsStore:
         normalized["shortcuts"] = normalize_shortcuts(
             payload.get("shortcuts", normalized.get("shortcuts"))
         )
+        normalized["speech_model_profile"] = normalize_profile(
+            normalized.get("speech_model_profile")
+        )
         _save_json_atomic(self.path, normalized)
+
+    def speech_model_profile(self) -> str:
+        return normalize_profile(self.load().get("speech_model_profile"))
+
+    def save_speech_model_profile(self, profile_id: str) -> None:
+        payload = self.load()
+        payload["speech_model_profile"] = normalize_profile(profile_id)
+        self.save(payload)

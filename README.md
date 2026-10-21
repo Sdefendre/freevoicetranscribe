@@ -17,7 +17,7 @@ FreeVoiceTranscribe is free, open-source software released under the [MIT licens
 - Press **hotkey + Space** while recording to switch to hands-free mode; press the hotkey again to finish.
 - Press **Esc** while recording to cancel and delete that recording.
 - Recover the latest transcript with **Copy Last Transcript** or **Insert Last Transcript** from the menu bar.
-- Transcribe locally with the `distil-large-v3` model through `lightning-whisper-mlx`.
+- Transcribe locally with a Fast or Accurate speech model through `lightning-whisper-mlx`. Accurate (`distil-large-v3`) is the default. Fast uses Whisper `small` for quicker on-device results.
 - Limit each recording to five minutes.
 
 FreeVoiceTranscribe has no account system, cloud transcription, transcript history, or always-on microphone. It is a menu-bar app after setup and does not remain in the Dock.
@@ -28,7 +28,7 @@ FreeVoiceTranscribe has no account system, cloud transcription, transcript histo
 | --- | --- |
 | Run from source | Apple Silicon Mac, macOS 14+, Python 3.11 to 3.13, PortAudio |
 | Build the app | The same hardware and OS, plus a framework-capable arm64 Python 3.11 |
-| First setup | Internet access and enough free space for the one-time speech-model download |
+| First setup | Internet access and enough free space for the selected speech-model download |
 
 Install PortAudio with Homebrew:
 
@@ -40,7 +40,7 @@ Homebrew Python 3.11 is the recommended release-build interpreter. Static or sta
 
 ## Supported languages
 
-The bundled `distil-large-v3` model is multilingual. The app does not enforce a single language, so you can speak the supported languages in the same vocabulary without changing a setting.
+Both local models are multilingual. The app does not enforce a single language, so you can speak the supported languages in the same vocabulary without changing a setting. Choose **Fast** or **Accurate** in **Settings…** or the setup window. Accurate stays the default.
 
 Commonly supported languages include:
 
@@ -58,6 +58,15 @@ Commonly supported languages include:
 - Chinese
 
 For best results, use a natural pace and clearly separate sentences or phrases. Punctuation is optional for personal use.
+
+### Speech models
+
+| Option | Local model | When to use it |
+| --- | --- | --- |
+| **Accurate** (default) | `distil-large-v3` | Best quality. This is the original model. |
+| **Fast** | Whisper `small` | Smaller download and quicker transcription. |
+
+Open **Settings…** from the menu bar for both the push-to-talk hotkey and the speech model, or use the Fast / Accurate control in the setup window. The chosen model downloads on demand with a progress bar. Inference never leaves this Mac. Each model is stored separately, so switching later only downloads the one that is missing.
 
 ## Audio input device
 
@@ -110,7 +119,7 @@ The setup window guides you through three prerequisites:
 
 1. **Microphone access**: captures only recordings you explicitly start.
 2. **Accessibility access**: detects the global shortcut, verifies the focused editable field, and pastes the result.
-3. **Speech model**: downloads the local `distil-large-v3` model once.
+3. **Speech model**: downloads the selected local model once. Accurate (`distil-large-v3`) is the default; Fast (Whisper `small`) is the quicker option. Switch later from **Settings…**.
 
 After changing a permission in **System Settings → Privacy & Security**, return to FreeVoiceTranscribe and refresh setup. Packaged and source runs have different macOS permission identities, so switching between them may require granting access again.
 
@@ -130,7 +139,7 @@ If the issue persists, use **Send Feedback** in the menu bar.
 ## Privacy and local data
 
 - The microphone opens only while recording.
-- Inference runs locally after the one-time model download.
+- Inference runs locally after the one-time download for the model you selected. A second model is downloaded only if you switch and it is not already on disk.
 - Recordings are private 16 kHz mono temporary WAV files. They are deleted after transcription, error, or cancellation; crash leftovers are removed at the next launch.
 - Exactly one transcript is persisted locally for recovery. A newer transcript replaces it; there is no history.
 - Automatic insertion temporarily stages text on the clipboard. The previous clipboard is restored only if no other app changed it, so newer clipboard contents are preserved.
@@ -142,9 +151,9 @@ Local files live outside the source tree and app bundle:
 
 ```text
 ~/Library/Application Support/FreeVoiceTranscribe/
-├── device-settings.json    persisted device and shortcut preferences (mode 0600)
+├── device-settings.json    persisted device, shortcut, and model preferences (mode 0600)
 ├── last-transcript.json    latest transcript only (mode 0600)
-└── mlx_models/             downloaded speech model
+└── mlx_models/             downloaded speech models (`distil-large-v3`, `small`)
 
 ~/Library/Caches/FreeVoiceTranscribe/
 ├── Temporary/              temporary recordings
@@ -252,6 +261,7 @@ Use `--skip-signature` only for isolated verifier fixtures; it is not a release 
 fvt/app.py             application composition and lifecycle
 fvt/state.py           legal states and immutable snapshots
 fvt/audio.py           bounded capture and device-aware WAV handling
+fvt/models.py          Fast / Accurate local-model catalog and downloads
 fvt/transcription.py   local model readiness and PCM transcription
 fvt/hotkey.py          resilient hold-to-talk, hotkey+Space, and Esc event tap
 fvt/insertion.py       exact target validation and safe clipboard insertion

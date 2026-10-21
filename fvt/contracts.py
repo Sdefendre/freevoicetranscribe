@@ -51,6 +51,7 @@ class InsertResult:
 AudioLevelCallback = Callable[[np.ndarray], None]
 AudioLimitCallback = Callable[[], None]
 StatusCallback = Callable[[str], None]
+ProgressCallback = Callable[[float], None]
 
 
 class AudioService(Protocol):
@@ -75,8 +76,14 @@ class TranscriptionService(Protocol):
     def model_present(self) -> bool: ...
 
     def prepare(
-        self, *, allow_download: bool, on_status: StatusCallback | None = None
+        self,
+        *,
+        allow_download: bool,
+        on_status: StatusCallback | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> None: ...
+
+    def set_model_name(self, model_name: str) -> None: ...
 
     def transcribe(self, audio_path: Path) -> str: ...
 

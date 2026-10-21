@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from .contracts import ScreenFrame
+from .models import DEFAULT_PROFILE_ID
 
 
 class AppState(StrEnum):
@@ -33,6 +34,8 @@ class Readiness:
     model_present: bool = False
     model_ready: bool = False
     model_busy: bool = False
+    model_profile: str = DEFAULT_PROFILE_ID
+    model_download_progress: float | None = None
 
     @property
     def permissions_ready(self) -> bool:

@@ -3,6 +3,7 @@ import unittest
 import wave
 from pathlib import Path
 
+from fvt.models import profile_for
 from fvt.storage import AppPaths
 from fvt.transcription import MLXTranscriber, ModelUnavailable
 
@@ -81,6 +82,70 @@ class TranscriptionTests(unittest.TestCase):
             with self.assertRaises(ModelUnavailable):
                 service.prepare(allow_download=False)
             self.assertEqual(calls, [])
+
+    def test_fast_model_uses_its_own_directory_and_can_switch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            paths = AppPaths(
+                root / "support", root / "cache", root / "logs", root / "tmp"
+            )
+            fast_dir = paths.model_root / "small"
+            fast_dir.mkdir(parents=True)
+            (fast_dir / "weights.npz").write_bytes(b"fast")
+            (fast_dir / "config.json").write_text("{}")
+            downloads = []
+
+            def fake_download(profile, **kwargs):
+                downloads.append((profile.id, kwargs["model_root"]))
+
+            service = MLXTranscriber(
+                paths,
+                model_name="distil-large-v3",
+                download_callable=fake_download,
+            )
+            self.assertEqual(service.model_dir.name, "distil-large-v3")
+            service.set_model_name("small")
+            self.assertFalse(service.is_ready)
+            self.assertTrue(service.model_present)
+            service.prepare(allow_download=False)
+            self.assertTrue(service.is_ready)
+            self.assertEqual(downloads, [])
+
+    def test_download_reports_progress_before_loading(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            paths = AppPaths(
+                root / "support", root / "cache", root / "logs", root / "tmp"
+            )
+            fractions = []
+            statuses = []
+
+            def fake_download(profile, **kwargs):
+                on_progress = kwargs["on_progress"]
+                dest = paths.model_root / profile.model_name
+                dest.mkdir(parents=True)
+                (dest / "weights.npz").write_bytes(b"model")
+                (dest / "config.json").write_text("{}")
+                if on_progress is not None:
+                    on_progress(0.4)
+                    on_progress(1.0)
+                fractions.append(profile.id)
+
+            service = MLXTranscriber(
+                paths,
+                model_name=profile_for("fast").model_name,
+                download_callable=fake_download,
+            )
+            service.prepare(
+                allow_download=True,
+                on_status=statuses.append,
+                on_progress=fractions.append,
+            )
+            self.assertIn("fast", fractions)
+            self.assertIn(0.4, fractions)
+            self.assertIn(1.0, fractions)
+            self.assertIn("Downloading Fast model", statuses)
+            self.assertTrue(service.is_ready)
 
 
 if __name__ == "__main__":
