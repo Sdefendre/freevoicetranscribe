@@ -508,6 +508,39 @@ class CoordinatorSetupTests(unittest.TestCase):
             self.assertEqual(transcriber.calls, 0)
             coordinator.shutdown()
 
+    def test_file_transcription_uses_the_selected_model(self):
+        with tempfile.TemporaryDirectory() as temp:
+            settings = FakeSettingsStore()
+            transcriber = FakeTranscriber(
+                present_by_name={"distil-large-v3": True, "small": True},
+            )
+            coordinator = AppCoordinator(
+                audio=FakeAudio(temp),
+                transcriber=transcriber,
+                inserter=FakeInserter(),
+                hotkey=FakeHotkey(),
+                permissions=FakePermissions(),
+                transcript_store=FakeTranscriptStore(),
+                settings_store=settings,
+                temp_dir=Path(temp),
+            )
+            coordinator.start()
+            wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
+            coordinator.select_model_profile("fast")
+            wait_for(lambda: transcriber.model_name == "small")
+            wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
+            path = Path(temp) / "clip.wav"
+            with wave.open(str(path), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(SAMPLE_RATE)
+                output.writeframes(b"\x00\x00" * SAMPLE_RATE)
+            coordinator.transcribe_audio_file(path)
+            wait_for(lambda: coordinator.file_result == "hello world")
+            self.assertEqual(transcriber.model_name, "small")
+            self.assertEqual(transcriber.calls, 1)
+            coordinator.shutdown()
+
     def test_selecting_fast_without_files_does_not_auto_download(self):
         with tempfile.TemporaryDirectory() as temp:
             settings = FakeSettingsStore()
