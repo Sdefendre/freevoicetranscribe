@@ -34,7 +34,7 @@ Choose a mode from the menu bar. **Dictate** is the default and never uses the w
 
 Write and Command need a one-time on-device writing-model download (about 1 GB). Switching modes does not start that download; use **Download Model** in **Settings…**. If the model is missing, still loading, or fails, **Write** inserts the raw transcript and **Command** leaves the selection unchanged. Command also leaves the selection unchanged if it is empty or different at paste time.
 
-You can also set an optional tone per app (for example Slack casual, Mail formal). The app looks at the frontmost app’s bundle ID and applies the prompt you saved in **Settings…**. Modes use whichever push-to-talk hotkey you chose.
+You can also set an optional tone per app (for example Slack casual, Mail formal). The app looks at the frontmost app’s bundle ID and applies the prompt you saved in **Settings…**. Modes use whichever push-to-talk hotkey you chose. Cleanup applies to dictation only. File transcription stays raw.
 
 FreeVoiceTranscribe has no account system, cloud transcription, transcript history, or always-on microphone. It is a menu-bar app after setup and does not remain in the Dock.
 
@@ -83,7 +83,7 @@ For best results, use a natural pace and clearly separate sentences or phrases. 
 | **Accurate** (default) | `distil-large-v3` | Best quality. This is the original model. |
 | **Fast** | Whisper `small` | Smaller download and quicker transcription. |
 
-Open **Settings…** from the menu bar for both the push-to-talk hotkey and the speech model, or use the Fast / Accurate control in the setup window. The chosen model downloads on demand with a progress bar. Inference never leaves this Mac. Each model is stored separately, so switching later only downloads the one that is missing.
+One **Settings…** window holds the push-to-talk hotkey, Fast / Accurate speech model, optional writing-model download, and per-app tones. The setup window also has the Fast / Accurate control. The chosen speech model downloads on demand with a progress bar. Inference never leaves this Mac. Each speech model is stored separately, so switching later only downloads the one that is missing.
 
 ## Audio input device
 
@@ -138,7 +138,7 @@ The setup window guides you through three prerequisites:
 2. **Accessibility access**: detects the global shortcut, verifies the focused editable field, and pastes the result.
 3. **Speech model**: downloads the selected local model once. Accurate (`distil-large-v3`) is the default; Fast (Whisper `small`) is the quicker option. Switch later from **Settings…**.
 
-Write and Command are optional. After setup, open **Writing Preferences…** and download the local writing model if you want cleaned-up text. That download also stays on this Mac.
+Write and Command are optional. After setup, open **Settings…** and download the local writing model if you want cleaned-up dictation. That download also stays on this Mac. File transcription is not cleaned up.
 
 After changing a permission in **System Settings → Privacy & Security**, return to FreeVoiceTranscribe and refresh setup. Packaged and source runs have different macOS permission identities, so switching between them may require granting access again.
 

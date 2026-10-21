@@ -1016,6 +1016,75 @@ kbd {
 
 .details-heading h2 {
   grid-column: 2;
+  max-width: 16ch;
+}
+
+.capability-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: clamp(3.5rem, 7vw, 6.5rem);
+  border-top: 1px solid var(--ink);
+}
+
+.capability-grid article {
+  min-width: 0;
+  padding: 2rem 0 2.15rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.capability-grid article:nth-child(odd) {
+  padding-right: clamp(1.5rem, 4vw, 3rem);
+  border-right: 1px solid var(--rule);
+}
+
+.capability-grid article:nth-child(even) {
+  padding-left: clamp(1.5rem, 4vw, 3rem);
+}
+
+.capability-index {
+  display: block;
+  margin-bottom: 1rem;
+  color: var(--ink-faint);
+  font-size: 0.625rem;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.capability-grid h3 {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: clamp(1.45rem, 2vw, 1.85rem);
+  font-weight: 560;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.capability-grid p {
+  max-width: 34rem;
+  margin: 0.7rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+code {
+  padding: 0.05em 0.28em;
+  border: 1px solid var(--rule);
+  border-radius: 0.28em;
+  background: var(--paper-light);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  font-weight: 650;
+}
+
+pre code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: inherit;
+  font-weight: inherit;
 }
 
 .details-heading .eyebrow {
@@ -1598,6 +1667,17 @@ kbd {
   .details-heading .eyebrow {
     grid-column: 1;
     grid-row: auto;
+  }
+
+  .capability-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .capability-grid article:nth-child(odd),
+  .capability-grid article:nth-child(even) {
+    padding-right: 0;
+    padding-left: 0;
+    border-right: 0;
   }
 
   .details-heading .eyebrow {
