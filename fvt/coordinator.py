@@ -22,7 +22,7 @@ from .contracts import (
     TranscriptionService,
 )
 from .state import AppSnapshot, AppState, PermissionState, Readiness, StateStore
-from .storage import LastTranscriptStore
+from .storage import LastTranscriptStore, normalize_record_key, record_key_label
 
 
 class EventType(StrEnum):
@@ -35,6 +35,8 @@ class EventType(StrEnum):
     FN_PRESS = "fn_press"
     FN_RELEASE = "fn_release"
     FN_SPACE = "fn_space"
+    DOUBLE_TAP_TIMEOUT = "double_tap_timeout"
+    SET_RECORD_KEY = "set_record_key"
     CANCEL = "cancel"
     AUDIO_LIMIT = "audio_limit"
     TRANSCRIPTION_RESULT = "transcription_result"
@@ -123,9 +125,12 @@ class AppCoordinator:
         hotkey: HotkeyService,
         permissions: PermissionService,
         transcript_store=None,
+        settings_store=None,
         logger: logging.Logger | None = None,
         min_audio_seconds: float = 0.25,
         shutdown_timeout: float = 2.0,
+        double_tap_window: float = 0.35,
+        tap_max_hold: float = 0.25,
     ) -> None:
         self.audio = audio
         self.transcriber = transcriber
@@ -135,6 +140,13 @@ class AppCoordinator:
         self._logger = logger or logging.getLogger("freevoicetranscribe.coordinator")
         self._min_audio_seconds = min_audio_seconds
         self._shutdown_timeout = shutdown_timeout
+        self._double_tap_window = double_tap_window
+        self._tap_max_hold = tap_max_hold
+        self.settings_store = settings_store
+        self._record_key = "fn"
+        self._press_started_at = 0.0
+        self._awaiting_double_tap = False
+        self._double_tap_timer: threading.Timer | None = None
 
         self._store = StateStore()
         self._events: queue.Queue[Event | None] = queue.Queue()
@@ -158,10 +170,23 @@ class AppCoordinator:
             self._logger.warning("Last transcript load failed: %s", type(exc).__name__)
             self._last_transcript = ""
         self._store.update(has_last_transcript=bool(self._last_transcript))
+        if settings_store is not None:
+            try:
+                shortcuts = settings_store.load().get("shortcuts") or {}
+                self._record_key = normalize_record_key(shortcuts.get("record"))
+            except Exception as exc:
+                self._logger.warning(
+                    "Shortcut settings load failed: %s", type(exc).__name__
+                )
+                self._record_key = "fn"
 
     @property
     def snapshot(self) -> AppSnapshot:
         return self._store.snapshot
+
+    @property
+    def record_key(self) -> str:
+        return self._record_key
 
     def set_observers(
         self,
@@ -232,6 +257,9 @@ class AppCoordinator:
     def dismiss_error(self) -> None:
         self.submit(EventType.DISMISS_ERROR)
 
+    def set_record_key(self, key_id: str) -> None:
+        self.submit(EventType.SET_RECORD_KEY, key_id)
+
     def _run(self) -> None:
         while True:
             event = self._events.get()
@@ -262,6 +290,8 @@ class AppCoordinator:
             EventType.FN_PRESS: self._fn_press,
             EventType.FN_RELEASE: self._fn_release,
             EventType.FN_SPACE: self._fn_space,
+            EventType.DOUBLE_TAP_TIMEOUT: self._double_tap_timeout,
+            EventType.SET_RECORD_KEY: self._set_record_key,
             EventType.CANCEL: self._cancel,
             EventType.AUDIO_LIMIT: self._audio_limit,
             EventType.TRANSCRIPTION_RESULT: self._transcription_result,
@@ -327,6 +357,8 @@ class AppCoordinator:
                     action="setup",
                 )
                 return
+            self._cancel_double_tap_timeout()
+            self._awaiting_double_tap = False
             self._hands_free = False
             self._target = None
             self._store.transition(
@@ -371,7 +403,7 @@ class AppCoordinator:
             self._store.transition(
                 AppState.IDLE,
                 title="Ready",
-                detail="Hold fn and speak. Release to insert.",
+                detail=self._ready_detail(),
                 readiness=readiness,
                 error_action=None,
                 hands_free=False,
@@ -419,7 +451,7 @@ class AppCoordinator:
         if readiness.accessibility.value != "granted":
             return (
                 "Typing access needed",
-                "Accessibility lets the app detect fn and paste into your chosen app.",
+                "Accessibility lets the app detect the hold-to-talk shortcut and paste into your chosen app.",
                 "setup",
             )
         if readiness.model_busy:
@@ -489,12 +521,46 @@ class AppCoordinator:
         )
         self._publish()
 
+    def _hotkey_label(self) -> str:
+        return record_key_label(self._record_key)
+
+    def _ready_detail(self) -> str:
+        return f"Hold {self._hotkey_label()} and speak. Release to insert."
+
+    def _recording_detail(self) -> str:
+        return f"Release {self._hotkey_label()} to insert. Press esc to cancel."
+
+    def _hands_free_detail(self) -> str:
+        return f"Press {self._hotkey_label()} to finish. Press esc to cancel."
+
+    def _cancel_double_tap_timeout(self) -> None:
+        timer = self._double_tap_timer
+        self._double_tap_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def _schedule_double_tap_timeout(self, delay: float) -> None:
+        self._cancel_double_tap_timeout()
+        timer = threading.Timer(
+            delay, lambda: self.submit(EventType.DOUBLE_TAP_TIMEOUT)
+        )
+        timer.daemon = True
+        self._double_tap_timer = timer
+        timer.start()
+
     def _fn_press(self, _payload=None) -> None:
+        self._cancel_double_tap_timeout()
         state = self._store.snapshot.state
         if state is AppState.RECORDING:
             if self._hands_free:
+                self._awaiting_double_tap = False
                 self._finish_recording()
+            elif self._awaiting_double_tap:
+                # Second tap arrived in time: lock instead of finishing.
+                self._awaiting_double_tap = False
+                self._lock_recording()
             return
+        self._awaiting_double_tap = False
         if state in {AppState.TRANSCRIBING, AppState.INSERTING}:
             self._store.update(
                 title="Still transcribing",
@@ -510,10 +576,11 @@ class AppCoordinator:
             self._store.transition(
                 AppState.IDLE,
                 title="Ready",
-                detail="Hold fn and speak. Release to insert.",
+                detail=self._ready_detail(),
                 readiness=readiness,
                 error_action=None,
             )
+        self._press_started_at = time.monotonic()
         self._begin_recording()
 
     def _begin_recording(self) -> None:
@@ -521,7 +588,7 @@ class AppCoordinator:
         if target is None:
             self._set_error(
                 "Choose where the text should go",
-                "Focus a text field in another app, then hold fn again.",
+                f"Focus a text field in another app, then hold {self._hotkey_label()} again.",
                 action="dismiss",
             )
             return
@@ -551,7 +618,7 @@ class AppCoordinator:
         self._store.transition(
             AppState.RECORDING,
             title="Listening",
-            detail="Release fn to insert. Press esc to cancel.",
+            detail=self._recording_detail(),
             hands_free=False,
             target_screen=target.screen,
             error_action=None,
@@ -564,22 +631,78 @@ class AppCoordinator:
             observer(samples)
 
     def _fn_release(self, _payload=None) -> None:
-        if self._store.snapshot.state is AppState.RECORDING and not self._hands_free:
-            self._finish_recording()
+        if self._store.snapshot.state is not AppState.RECORDING or self._hands_free:
+            return
+        hold = time.monotonic() - self._press_started_at
+        if self._tap_max_hold > 0 and hold <= self._tap_max_hold:
+            # Wait from this release so a second tap can lock recording.
+            self._awaiting_double_tap = True
+            self._schedule_double_tap_timeout(self._double_tap_window)
+            return
+        self._awaiting_double_tap = False
+        self._finish_recording()
 
     def _fn_space(self, _payload=None) -> None:
+        self._cancel_double_tap_timeout()
+        self._awaiting_double_tap = False
+        self._lock_recording()
+
+    def _lock_recording(self) -> None:
         if self._store.snapshot.state is not AppState.RECORDING or self._hands_free:
             return
         self._hands_free = True
         self._store.transition(
             AppState.RECORDING,
             title="Hands-free recording",
-            detail="Press fn to finish. Press esc to cancel.",
+            detail=self._hands_free_detail(),
             hands_free=True,
         )
         self._publish()
 
+    def _double_tap_timeout(self, _payload=None) -> None:
+        if (
+            self._store.snapshot.state is AppState.RECORDING
+            and not self._hands_free
+            and self._awaiting_double_tap
+        ):
+            self._awaiting_double_tap = False
+            self._finish_recording()
+
+    def _set_record_key(self, payload) -> None:
+        key_id = normalize_record_key(payload)
+        if key_id == self._record_key:
+            return
+        self._record_key = key_id
+        setter = getattr(self.hotkey, "set_record_key", None)
+        if callable(setter):
+            try:
+                setter(key_id)
+            except Exception:
+                self._logger.warning("Hotkey update failed", exc_info=True)
+        store = self.settings_store
+        if store is not None:
+            try:
+                data = store.load()
+                data["shortcuts"] = {
+                    "record": key_id,
+                    "hands_free": f"{key_id}+space",
+                    "cancel": "esc",
+                }
+                store.save(data)
+            except Exception:
+                self._logger.warning("Shortcut settings save failed", exc_info=True)
+        if self._store.snapshot.state is AppState.RECORDING:
+            # The previous key's release will never arrive. Treat this as a
+            # finished take so recording cannot stay stuck.
+            self._finish_recording()
+            return
+        if self._store.snapshot.state is AppState.IDLE:
+            self._store.update(detail=self._ready_detail())
+            self._publish()
+
     def _finish_recording(self) -> None:
+        self._cancel_double_tap_timeout()
+        self._awaiting_double_tap = False
         self.hotkey.set_recording_active(False)
         self._hands_free = False
         try:
@@ -601,7 +724,7 @@ class AppCoordinator:
             captured.cleanup()
             self._set_error(
                 "I didn’t hear enough audio",
-                "Hold fn a little longer and try again.",
+                f"Hold {self._hotkey_label()} a little longer and try again.",
                 action="dismiss",
             )
             return
@@ -688,7 +811,7 @@ class AppCoordinator:
         self._store.transition(
             AppState.IDLE,
             title="Ready",
-            detail="Hold fn and speak. Release to insert.",
+            detail=self._ready_detail(),
             hands_free=False,
             has_last_transcript=True,
             error_action=None,
@@ -717,6 +840,8 @@ class AppCoordinator:
     def _cancel(self, _payload=None) -> None:
         if self._store.snapshot.state is not AppState.RECORDING:
             return
+        self._cancel_double_tap_timeout()
+        self._awaiting_double_tap = False
         self.hotkey.set_recording_active(False)
         try:
             self.audio.cancel()
@@ -734,7 +859,7 @@ class AppCoordinator:
         self._store.transition(
             AppState.IDLE,
             title="Ready",
-            detail="Recording cancelled. Hold fn to try again.",
+            detail=f"Recording cancelled. Hold {self._hotkey_label()} to try again.",
             hands_free=False,
             error_action=None,
             target_screen=None,
@@ -825,7 +950,7 @@ class AppCoordinator:
             self._store.transition(
                 AppState.IDLE,
                 title=title,
-                detail="Hold fn and speak. Release to insert.",
+                detail=self._ready_detail(),
                 readiness=readiness,
                 hands_free=False,
                 has_last_transcript=bool(self._last_transcript),
@@ -838,6 +963,8 @@ class AppCoordinator:
         self._publish()
 
     def _set_error(self, title: str, detail: str, *, action: str) -> None:
+        self._cancel_double_tap_timeout()
+        self._awaiting_double_tap = False
         self.hotkey.set_recording_active(False)
         state = self._store.snapshot.state
         if state is AppState.SETUP_REQUIRED:
@@ -867,6 +994,8 @@ class AppCoordinator:
             observer(self._store.snapshot)
 
     def _handle_shutdown(self, _payload=None) -> None:
+        self._cancel_double_tap_timeout()
+        self._awaiting_double_tap = False
         self._closing = True
         self._store.transition(
             AppState.SHUTTING_DOWN,

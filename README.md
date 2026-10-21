@@ -1,6 +1,6 @@
 # FreeVoiceTranscribe
 
-Private, local hold-to-talk dictation for Apple Silicon Macs. Focus an editable field, hold **fn/globe**, speak, and release to insert the transcript where you started.
+Private, local hold-to-talk dictation for Apple Silicon Macs. Focus an editable field, hold the push-to-talk hotkey (**fn/globe** by default), speak, and release to insert the transcript where you started.
 
 FreeVoiceTranscribe is free, open-source software released under the [MIT license](./LICENSE).
 
@@ -12,8 +12,9 @@ FreeVoiceTranscribe is free, open-source software released under the [MIT licens
 
 ## What it does
 
-- Hold **fn** to record; release it to transcribe and insert.
-- Press **fn + Space** while recording to switch to hands-free mode; press **fn** again to finish.
+- Hold the push-to-talk hotkey to record; release it to transcribe and insert. The default is **fn**. Change it in **Settings…** from the menu bar to Right Option, Right Command, Right Control, or F13. Right-side modifiers may not work on keyboards that do not distinguish left and right keys.
+- Double-tap the hotkey to lock recording; tap it again to finish.
+- Press **hotkey + Space** while recording to switch to hands-free mode; press the hotkey again to finish.
 - Press **Esc** while recording to cancel and delete that recording.
 - Recover the latest transcript with **Copy Last Transcript** or **Insert Last Transcript** from the menu bar.
 - Transcribe locally with the `distil-large-v3` model through `lightning-whisper-mlx`.
@@ -115,7 +116,7 @@ After changing a permission in **System Settings → Privacy & Security**, retur
 
 ### Compatible editable fields
 
-Once setup is complete, focus an enabled editable field in another app before pressing **fn**. Apps with custom editors, web-based text fields without native Accessibility support, password fields, terminal shells without input permission, or remote desktop session controls may not expose a compatible target.
+Once setup is complete, focus an enabled editable field in another app before pressing the hold-to-talk hotkey. Apps with custom editors, web-based text fields without native Accessibility support, password fields, terminal shells without input permission, or remote desktop session controls may not expose a compatible target.
 
 If you see **No editable text field is available**, try this before reporting a bug:
 
@@ -252,11 +253,11 @@ fvt/app.py             application composition and lifecycle
 fvt/state.py           legal states and immutable snapshots
 fvt/audio.py           bounded capture and device-aware WAV handling
 fvt/transcription.py   local model readiness and PCM transcription
-fvt/hotkey.py          resilient fn, fn+Space, and Esc event tap
+fvt/hotkey.py          resilient hold-to-talk, hotkey+Space, and Esc event tap
 fvt/insertion.py       exact target validation and safe clipboard insertion
 fvt/permissions.py     macOS permission checks and Settings recovery
 fvt/storage.py         private paths, latest transcript, and rotating logs
-fvt/ui.py              setup window, menu bar, and multi-display HUD
+fvt/ui.py              setup window, settings, menu bar, and multi-display HUD
 scripts/               build interpreter, bundle, and launch verification
 site/                  static landing page, published to GitHub Pages
 ```

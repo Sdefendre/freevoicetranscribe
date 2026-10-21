@@ -4,14 +4,20 @@ from unittest.mock import patch
 
 import Quartz
 
-from fvt.hotkey import SPACE_KEYCODE, FnListener
+from fvt.hotkey import (
+    F13_KEYCODE,
+    FN_FLAG,
+    RIGHT_OPTION_FLAG,
+    SPACE_KEYCODE,
+    FnListener,
+)
 
 
 class HotkeyTests(unittest.TestCase):
     def _space_event(self, listener, *, active):
         actions = []
         listener._dispatch = actions.append
-        listener._fn_down = True
+        listener._key_down = True
         listener.set_recording_active(active)
 
         def field(_event, requested):
@@ -88,6 +94,69 @@ class HotkeyTests(unittest.TestCase):
             self.assertFalse(listener.start())
         self.assertFalse(listener.is_healthy)
         self.assertIn("could not start", listener.last_error.lower())
+
+    def test_fn_flag_change_dispatches_press_and_release(self):
+        listener = FnListener(lambda: None, lambda: None)
+        actions = []
+        listener._dispatch = actions.append
+        event = object()
+
+        with patch.object(Quartz, "CGEventGetFlags", return_value=FN_FLAG):
+            listener._callback(None, Quartz.kCGEventFlagsChanged, event, None)
+        with patch.object(Quartz, "CGEventGetFlags", return_value=0):
+            listener._callback(None, Quartz.kCGEventFlagsChanged, event, None)
+
+        self.assertEqual(actions, ["press", "release"])
+
+    def test_right_option_ignores_fn_and_tracks_its_own_flag(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="right-option")
+        actions = []
+        listener._dispatch = actions.append
+        event = object()
+
+        with patch.object(Quartz, "CGEventGetFlags", return_value=FN_FLAG):
+            listener._callback(None, Quartz.kCGEventFlagsChanged, event, None)
+        self.assertEqual(actions, [])
+
+        with patch.object(Quartz, "CGEventGetFlags", return_value=RIGHT_OPTION_FLAG):
+            listener._callback(None, Quartz.kCGEventFlagsChanged, event, None)
+        self.assertEqual(actions, ["press"])
+
+    def _f13_keydown(self, listener, *, repeat):
+        def field(_event, requested):
+            if requested == Quartz.kCGKeyboardEventAutorepeat:
+                return 1 if repeat else 0
+            return F13_KEYCODE
+
+        event = object()
+        with patch.object(Quartz, "CGEventGetIntegerValueField", side_effect=field):
+            result = listener._callback(None, Quartz.kCGEventKeyDown, event, None)
+        return event, result
+
+    def test_f13_keydown_is_suppressed_and_dispatches_press(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="f13")
+        actions = []
+        listener._dispatch = actions.append
+        _event, result = self._f13_keydown(listener, repeat=False)
+        self.assertIsNone(result)
+        self.assertEqual(actions, ["press"])
+
+    def test_f13_autorepeat_is_swallowed_without_extra_press(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="f13")
+        actions = []
+        listener._dispatch = actions.append
+        _event, first = self._f13_keydown(listener, repeat=False)
+        _event, repeated = self._f13_keydown(listener, repeat=True)
+        self.assertIsNone(first)
+        self.assertIsNone(repeated)
+        self.assertEqual(actions, ["press"])
+
+    def test_set_record_key_rejects_unknown_ids(self):
+        listener = FnListener(lambda: None, lambda: None)
+        listener.set_record_key("banana")
+        self.assertEqual(listener.record_key, "fn")
+        listener.set_record_key("f13")
+        self.assertEqual(listener.record_key, "f13")
 
 
 if __name__ == "__main__":

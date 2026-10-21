@@ -13,6 +13,46 @@ from pathlib import Path
 
 APP_DIR_NAME = "FreeVoiceTranscribe"
 
+# Push-to-talk keys that Settings may store. Detection for each id lives in hotkey.py.
+RECORD_KEY_IDS = ("fn", "right-option", "right-command", "right-control", "f13")
+
+RECORD_KEY_LABELS = {
+    "fn": "fn",
+    "right-option": "right option",
+    "right-command": "right command",
+    "right-control": "right control",
+    "f13": "F13",
+}
+
+RECORD_KEY_MENU_LABELS = {
+    "fn": "fn (Globe)",
+    "right-option": "Right Option",
+    "right-command": "Right Command",
+    "right-control": "Right Control",
+    "f13": "F13",
+}
+
+
+def normalize_record_key(value: object) -> str:
+    if isinstance(value, str) and value in RECORD_KEY_LABELS:
+        return value
+    return "fn"
+
+
+def record_key_label(value: object) -> str:
+    return RECORD_KEY_LABELS[normalize_record_key(value)]
+
+
+def default_shortcuts(record_key: object = "fn") -> dict[str, str]:
+    key = normalize_record_key(record_key)
+    return {"record": key, "hands_free": f"{key}+space", "cancel": "esc"}
+
+
+def normalize_shortcuts(shortcuts: object) -> dict[str, str]:
+    if not isinstance(shortcuts, dict):
+        return default_shortcuts()
+    return default_shortcuts(shortcuts.get("record"))
+
 
 @dataclass(frozen=True, slots=True)
 class AppPaths:
@@ -223,7 +263,7 @@ class DeviceSettingsStore:
             "version": self.VERSION,
             "input_device_index": None,
             "input_device_name": None,
-            "shortcuts": {"record": "fn", "hands_free": "fn+space", "cancel": "esc"},
+            "shortcuts": default_shortcuts(),
             "history_enabled": False,
             "history_max_entries": 200,
             "replay_last_recording": False,
@@ -240,9 +280,13 @@ class DeviceSettingsStore:
             return self._defaults()
         defaults = self._defaults()
         defaults.update(payload)
+        defaults["shortcuts"] = normalize_shortcuts(payload.get("shortcuts"))
         return defaults
 
     def save(self, payload: dict) -> None:
         normalized = dict(self._defaults())
         normalized.update(payload)
+        normalized["shortcuts"] = normalize_shortcuts(
+            payload.get("shortcuts", normalized.get("shortcuts"))
+        )
         _save_json_atomic(self.path, normalized)

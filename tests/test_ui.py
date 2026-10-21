@@ -7,10 +7,12 @@ import AppKit
 
 from fvt.contracts import ScreenFrame
 from fvt.state import AppSnapshot, AppState, PermissionState, Readiness
+from fvt.storage import RECORD_KEY_IDS, RECORD_KEY_MENU_LABELS
 from fvt.ui import (
     HUD_HEIGHT,
     HUD_WIDTH,
     RecordingHUD,
+    SettingsWindow,
     SetupWindow,
     _button,
     _hud_frame_for_screen,
@@ -21,6 +23,10 @@ from generate_icon import generate_icon
 
 
 class FakeCoordinator:
+    def __init__(self):
+        self.record_key = "fn"
+        self.record_key_calls = []
+
     def request_microphone(self):
         pass
 
@@ -32,6 +38,10 @@ class FakeCoordinator:
 
     def download_model(self):
         pass
+
+    def set_record_key(self, key_id):
+        self.record_key = key_id
+        self.record_key_calls.append(key_id)
 
 
 class NativeUITests(unittest.TestCase):
@@ -173,6 +183,25 @@ class NativeUITests(unittest.TestCase):
                 )
                 self.assertAlmostEqual(red, green, places=2)
                 self.assertAlmostEqual(green, blue, places=2)
+
+    def test_settings_window_lists_hotkeys_and_saves_choice(self):
+        coordinator = FakeCoordinator()
+        settings = SettingsWindow.alloc().initWithCoordinator_(coordinator)
+        settings.show()
+        titles = [
+            str(settings._hotkey_popup.itemAtIndex_(index).title())
+            for index in range(settings._hotkey_popup.numberOfItems())
+        ]
+        self.assertEqual(
+            titles,
+            [RECORD_KEY_MENU_LABELS[key_id] for key_id in RECORD_KEY_IDS],
+        )
+        self.assertEqual(settings._hotkey_popup.indexOfSelectedItem(), 0)
+
+        settings._hotkey_popup.selectItemAtIndex_(1)
+        settings.hotkeyChanged_(settings._hotkey_popup)
+        self.assertEqual(coordinator.record_key_calls, [RECORD_KEY_IDS[1]])
+        settings._window.orderOut_(None)
 
 
 if __name__ == "__main__":

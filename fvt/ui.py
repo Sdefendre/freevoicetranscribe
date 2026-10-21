@@ -13,6 +13,7 @@ from Foundation import NSAttributedString, NSObject, NSTimer
 
 from .contracts import ScreenFrame
 from .state import AppSnapshot, AppState, PermissionState
+from .storage import RECORD_KEY_IDS, RECORD_KEY_MENU_LABELS, normalize_record_key
 
 HUD_WIDTH = 424
 HUD_HEIGHT = 82
@@ -748,6 +749,117 @@ class SetupWindow(NSObject):
         self._window.orderOut_(None)
 
 
+class SettingsWindow(NSObject):
+    def initWithCoordinator_(self, coordinator):
+        self = objc.super(SettingsWindow, self).init()
+        if self is None:
+            return None
+        self._coordinator = coordinator
+        self._window = None
+        self._hotkey_popup = None
+        return self
+
+    @objc.python_method
+    def _ensure_window(self) -> None:
+        if self._window is not None:
+            return
+        rect = AppKit.NSMakeRect(0, 0, 540, 248)
+        self._window = (
+            AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                rect,
+                AppKit.NSWindowStyleMaskTitled
+                | AppKit.NSWindowStyleMaskClosable
+                | AppKit.NSWindowStyleMaskMiniaturizable,
+                AppKit.NSBackingStoreBuffered,
+                False,
+            )
+        )
+        self._window.setTitle_("FreeVoiceTranscribe Settings")
+        self._window.setReleasedWhenClosed_(False)
+        self._window.center()
+        content = self._window.contentView()
+
+        title = _label(
+            AppKit.NSMakeRect(28, 196, 484, 28),
+            "Dictation shortcut",
+            size=19,
+            bold=True,
+        )
+        subtitle = _label(
+            AppKit.NSMakeRect(28, 144, 484, 48),
+            "Hold the hotkey to record, then release to insert. Double-tap to lock recording, then tap again to finish.",
+            size=12,
+        )
+        subtitle.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+        content.addSubview_(title)
+        content.addSubview_(subtitle)
+
+        name_label = _label(
+            AppKit.NSMakeRect(28, 108, 210, 22),
+            "Push-to-talk hotkey",
+            bold=True,
+        )
+        content.addSubview_(name_label)
+
+        popup = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            AppKit.NSMakeRect(28, 72, 220, 26),
+            False,
+        )
+        for key_id in RECORD_KEY_IDS:
+            popup.addItemWithTitle_(RECORD_KEY_MENU_LABELS[key_id])
+            popup.lastItem().setRepresentedObject_(key_id)
+        popup.setTarget_(self)
+        popup.setAction_(b"hotkeyChanged:")
+        popup.setAccessibilityLabel_("Push-to-talk hotkey")
+        popup.setAccessibilityHelp_(
+            "Choose the key that starts and stops hold-to-talk recording."
+        )
+        self._hotkey_popup = popup
+        content.addSubview_(popup)
+
+        hint = _label(
+            AppKit.NSMakeRect(28, 20, 484, 36),
+            "Esc cancels. While you hold the hotkey, Space also locks recording.",
+            size=12,
+        )
+        hint.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+        content.addSubview_(hint)
+        self._sync_popup()
+
+    @objc.python_method
+    def _sync_popup(self) -> None:
+        if self._hotkey_popup is None:
+            return
+        current = normalize_record_key(getattr(self._coordinator, "record_key", "fn"))
+        try:
+            index = RECORD_KEY_IDS.index(current)
+        except ValueError:
+            index = 0
+        self._hotkey_popup.selectItemAtIndex_(index)
+
+    @objc.python_method
+    def show(self) -> None:
+        self._ensure_window()
+        self._sync_popup()
+        AppKit.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        self._window.makeKeyAndOrderFront_(None)
+
+    @objc.python_method
+    def update(self, _snapshot: AppSnapshot) -> None:
+        if self._window is None:
+            return
+        self._sync_popup()
+
+    def hotkeyChanged_(self, sender) -> None:
+        item = sender.selectedItem()
+        if item is None:
+            return
+        key_id = normalize_record_key(item.representedObject())
+        setter = getattr(self._coordinator, "set_record_key", None)
+        if callable(setter):
+            setter(key_id)
+
+
 class StatusBarApp(rumps.App):
     def __init__(self, coordinator):
         super().__init__(
@@ -769,6 +881,7 @@ class StatusBarApp(rumps.App):
             "Insert Last Transcript", callback=self._insert_last
         )
         self._setup_item = rumps.MenuItem("Open Setup…", callback=self._open_setup)
+        self._settings_item = rumps.MenuItem("Settings…", callback=self._open_settings)
         self._dismiss_item = rumps.MenuItem(
             "Dismiss Error", callback=self._dismiss_error
         )
@@ -781,6 +894,7 @@ class StatusBarApp(rumps.App):
             self._insert_item,
             None,
             self._setup_item,
+            self._settings_item,
             self._dismiss_item,
             None,
             self._quit_item,
@@ -788,6 +902,7 @@ class StatusBarApp(rumps.App):
         callbacks = {"setup": self.show_setup, "dismiss": coordinator.dismiss_error}
         self.hud = RecordingHUD.alloc().initWithCallbacks_(callbacks)
         self.setup_window = SetupWindow.alloc().initWithCoordinator_(coordinator)
+        self.settings_window = SettingsWindow.alloc().initWithCoordinator_(coordinator)
         self._did_auto_show_setup = False
         self._refresh_timer = rumps.Timer(self._refresh_setup, 1.0)
 
@@ -803,6 +918,7 @@ class StatusBarApp(rumps.App):
         )
         self._dismiss_item.hidden = snapshot.state is not AppState.ERROR
         self.setup_window.update(snapshot)
+        self.settings_window.update(snapshot)
         self.hud.update(snapshot)
         if snapshot.state is AppState.SETUP_REQUIRED and not self._did_auto_show_setup:
             self._did_auto_show_setup = True
@@ -822,6 +938,9 @@ class StatusBarApp(rumps.App):
 
     def _open_setup(self, _sender) -> None:
         self.show_setup()
+
+    def _open_settings(self, _sender) -> None:
+        self.settings_window.show()
 
     def _dismiss_error(self, _sender) -> None:
         self._coordinator.dismiss_error()
