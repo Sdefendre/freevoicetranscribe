@@ -62,6 +62,10 @@ class FakeCoordinator:
     def __init__(self):
         self.record_key = "fn"
         self.record_key_calls = []
+        self.tones = {"com.apple.mail": "Formal and complete."}
+        self.writing_downloads = 0
+        self.writing_cancels = 0
+        self.writing_cancels = 0
 
     def request_microphone(self):
         pass
@@ -74,6 +78,18 @@ class FakeCoordinator:
 
     def download_model(self):
         pass
+
+    def download_writing_model(self):
+        self.writing_downloads += 1
+
+    def cancel_writing_model(self):
+        self.writing_cancels += 1
+
+    def app_tones(self):
+        return dict(self.tones)
+
+    def set_app_tones(self, tones):
+        self.tones = dict(tones)
 
     def set_record_key(self, key_id):
         self.record_key = key_id
@@ -358,6 +374,33 @@ class NativeUITests(unittest.TestCase):
         settings._hotkey_popup.selectItemAtIndex_(1)
         settings.hotkeyChanged_(settings._hotkey_popup)
         self.assertEqual(coordinator.record_key_calls, [RECORD_KEY_IDS[1]])
+
+        settings.update(
+            AppSnapshot(
+                state=AppState.IDLE,
+                title="Ready",
+                writing_model_present=False,
+                writing_model_ready=False,
+            )
+        )
+        self.assertEqual(
+            str(settings._writing_button.accessibilityLabel()), "Download Model"
+        )
+        self.assertTrue(settings._writing_button.isEnabled())
+        settings.writingModelPressed_(None)
+        self.assertEqual(coordinator.writing_downloads, 1)
+
+        settings.update(
+            AppSnapshot(
+                state=AppState.IDLE,
+                title="Ready",
+                writing_model_busy=True,
+            )
+        )
+        self.assertEqual(str(settings._writing_button.accessibilityLabel()), "Cancel")
+        self.assertTrue(settings._writing_button.isEnabled())
+        settings.writingModelPressed_(None)
+        self.assertEqual(coordinator.writing_cancels, 1)
         settings._window.orderOut_(None)
 
 

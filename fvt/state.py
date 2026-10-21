@@ -28,6 +28,32 @@ class PermissionState(StrEnum):
     RESTRICTED = "restricted"
 
 
+class DictationMode(StrEnum):
+    """What happens after the local speech model produces a transcript."""
+
+    DICTATE = "dictate"
+    WRITE = "write"
+    COMMAND = "command"
+
+    @classmethod
+    def parse(cls, value: object) -> DictationMode:
+        try:
+            return cls(str(value))
+        except ValueError:
+            return cls.DICTATE
+
+
+def idle_detail_for_mode(mode: DictationMode, hotkey_label: str = "fn") -> str:
+    if mode is DictationMode.WRITE:
+        return f"Hold {hotkey_label} and speak. Release to insert cleaned-up text."
+    if mode is DictationMode.COMMAND:
+        return f"Select text, hold {hotkey_label}, and speak a rewrite instruction."
+    if mode is DictationMode.DICTATE:
+        return f"Hold {hotkey_label} and speak. Release to insert."
+    unhandled: DictationMode = mode
+    raise AssertionError(f"unhandled dictation mode: {unhandled}")
+
+
 @dataclass(frozen=True, slots=True)
 class Readiness:
     microphone: PermissionState = PermissionState.UNKNOWN
@@ -63,6 +89,10 @@ class AppSnapshot:
     file_name: str = ""
     file_current: int = 0
     file_total: int = 0
+    dictation_mode: DictationMode = DictationMode.DICTATE
+    writing_model_present: bool = False
+    writing_model_ready: bool = False
+    writing_model_busy: bool = False
 
 
 class InvalidTransition(RuntimeError):

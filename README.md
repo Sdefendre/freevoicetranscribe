@@ -17,9 +17,24 @@ FreeVoiceTranscribe is free, open-source software released under the [MIT licens
 - Press **hotkey + Space** while recording to switch to hands-free mode; press the hotkey again to finish.
 - Press **Esc** while recording to cancel and delete that recording.
 - Recover the latest transcript with **Copy Last Transcript** or **Insert Last Transcript** from the menu bar.
-- Choose **Transcribe audio file…** to pick or drop a wav, mp3, m4a, or similar file. There is no five-minute limit for files; long audio is transcribed in chunks with the selected Fast or Accurate model. Copy the result or save it as a `.txt` file.
+- Choose **Transcribe audio file…** to pick or drop a wav, mp3, m4a, or similar file. There is no five-minute limit for files; long audio is transcribed in chunks with the selected Fast or Accurate model. Copy the result or save it as a `.txt` file. File transcription stays raw and does not use the writing model.
 - Transcribe locally with a Fast or Accurate speech model through `lightning-whisper-mlx`. Accurate (`distil-large-v3`) is the default. Fast uses Whisper `small` for quicker on-device results.
+- Optionally clean up **dictation** on this Mac with a small local writing model (off by default).
 - Limit each hold-to-talk recording to five minutes.
+
+### Dictation modes
+
+Choose a mode from the menu bar. **Dictate** is the default and never uses the writing model.
+
+| Mode | What it does |
+| --- | --- |
+| **Dictate** | Inserts the raw local transcript. |
+| **Write** | Cleans filler words, punctuation, capitalization, and spoken self-corrections, then inserts the result. |
+| **Command** | You select text first, then speak an instruction. The app rewrites that selection and pastes it back. |
+
+Write and Command need a one-time on-device writing-model download (about 1 GB). Switching modes does not start that download; use **Download Model** in **Settings…**. If the model is missing, still loading, or fails, **Write** inserts the raw transcript and **Command** leaves the selection unchanged. Command also leaves the selection unchanged if it is empty or different at paste time.
+
+You can also set an optional tone per app (for example Slack casual, Mail formal). The app looks at the frontmost app’s bundle ID and applies the prompt you saved in **Settings…**. Modes use whichever push-to-talk hotkey you chose.
 
 FreeVoiceTranscribe has no account system, cloud transcription, transcript history, or always-on microphone. It is a menu-bar app after setup and does not remain in the Dock.
 
@@ -30,6 +45,7 @@ FreeVoiceTranscribe has no account system, cloud transcription, transcript histo
 | Run from source | Apple Silicon Mac, macOS 14+, Python 3.11 to 3.13, PortAudio |
 | Build the app | The same hardware and OS, plus a framework-capable arm64 Python 3.11 |
 | First setup | Internet access and enough free space for the selected speech-model download |
+| Optional Write / Command | The same Mac, plus about 1 GB more for the one-time writing-model download |
 
 Install PortAudio with Homebrew:
 
@@ -122,6 +138,8 @@ The setup window guides you through three prerequisites:
 2. **Accessibility access**: detects the global shortcut, verifies the focused editable field, and pastes the result.
 3. **Speech model**: downloads the selected local model once. Accurate (`distil-large-v3`) is the default; Fast (Whisper `small`) is the quicker option. Switch later from **Settings…**.
 
+Write and Command are optional. After setup, open **Writing Preferences…** and download the local writing model if you want cleaned-up text. That download also stays on this Mac.
+
 After changing a permission in **System Settings → Privacy & Security**, return to FreeVoiceTranscribe and refresh setup. Packaged and source runs have different macOS permission identities, so switching between them may require granting access again.
 
 ### Compatible editable fields
@@ -140,7 +158,7 @@ If the issue persists, use **Send Feedback** in the menu bar.
 ## Privacy and local data
 
 - The microphone opens only while recording.
-- Inference runs locally after the one-time download for the model you selected. A second model is downloaded only if you switch and it is not already on disk.
+- Inference runs locally after the one-time download for the model you selected. A second speech model is downloaded only if you switch and it is not already on disk. The optional writing model is also local and never sends text to a server.
 - Recordings are private 16 kHz mono temporary WAV files. They are deleted after transcription, error, or cancellation; crash leftovers are removed at the next launch.
 - **Transcribe audio file…** reads the file you chose on this Mac. Temporary converted copies are deleted after transcription. The original file is not changed or uploaded.
 - Exactly one transcript is persisted locally for recovery. A newer transcript replaces it; there is no history.
@@ -153,9 +171,10 @@ Local files live outside the source tree and app bundle:
 
 ```text
 ~/Library/Application Support/FreeVoiceTranscribe/
-├── device-settings.json    persisted device, shortcut, and model preferences (mode 0600)
+├── device-settings.json    persisted device, shortcut, mode, and model preferences (mode 0600)
 ├── last-transcript.json    latest transcript only (mode 0600)
-└── mlx_models/             downloaded speech models (`distil-large-v3`, `small`)
+├── mlx_models/             downloaded speech models (`distil-large-v3`, `small`)
+└── mlx_lm_models/          optional writing model, downloaded only from Settings
 
 ~/Library/Caches/FreeVoiceTranscribe/
 ├── Temporary/              temporary recordings
@@ -266,6 +285,7 @@ fvt/audio.py           bounded capture and device-aware WAV handling
 fvt/file_audio.py      local file decode, chunking, and transcript save
 fvt/models.py          Fast / Accurate local-model catalog and downloads
 fvt/transcription.py   local model readiness and PCM transcription
+fvt/cleanup.py         optional on-device writing model for Write and Command
 fvt/hotkey.py          resilient hold-to-talk, hotkey+Space, and Esc event tap
 fvt/insertion.py       exact target validation and safe clipboard insertion
 fvt/permissions.py     macOS permission checks and Settings recovery

@@ -121,6 +121,9 @@ class BundleVerifierTests(unittest.TestCase):
         self.assertTrue(required_native.issubset(IMPORT_MODULES))
         self.assertNotIn("numba.np.ufunc.omppool", IMPORT_MODULES)
         self.assertIn("mlx._reprlib_fix", REQUIRED_PYTHON_MODULES)
+        self.assertIn("fvt.cleanup", REQUIRED_PYTHON_MODULES)
+        self.assertIn("mlx_lm", REQUIRED_PYTHON_MODULES)
+        self.assertIn("fvt.cleanup", IMPORT_MODULES)
         self.assertTrue(
             {
                 "pynput._util.darwin",

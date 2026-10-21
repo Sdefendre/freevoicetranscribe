@@ -13,7 +13,7 @@ import Quartz
 from Foundation import NSData
 from pynput import keyboard as pynput_keyboard
 
-from .contracts import InsertResult, ScreenFrame, TargetApp
+from .contracts import InsertResult, ScreenFrame, SelectionMismatchError, TargetApp
 
 try:
     import ApplicationServices as AX
@@ -155,6 +155,12 @@ class MacAccessibility:
         except Exception:
             return current == expected
 
+    def selected_text(self, element) -> str:
+        if element is None or AX is None:
+            return ""
+        value = self._attribute(element, AX.kAXSelectedTextAttribute)
+        return str(value).strip() if isinstance(value, str) else ""
+
 
 class MacWindowLocator:
     """Resolve the display containing the captured app's front window."""
@@ -280,6 +286,21 @@ class MacTextInserter:
             screen=self._window_locator.screen_for_pid(pid),
         )
 
+    def read_selected_text(self, target: TargetApp) -> str:
+        """Read the current selection without consuming the captured target."""
+        if (
+            self._captured_key != (target.pid, target.bundle_id)
+            or self._captured_element is None
+        ):
+            return ""
+        reader = getattr(self._accessibility, "selected_text", None)
+        if reader is None:
+            return ""
+        try:
+            return str(reader(self._captured_element) or "").strip()
+        except Exception:
+            return ""
+
     def _clear_capture(self) -> None:
         self._captured_key = None
         self._captured_element = None
@@ -323,11 +344,23 @@ class MacTextInserter:
             )
         return app
 
-    def insert(self, text: str, target: TargetApp) -> InsertResult:
+    def insert(
+        self,
+        text: str,
+        target: TargetApp,
+        *,
+        expected_selection: str | None = None,
+    ) -> InsertResult:
         if not text:
             raise InsertionError("There is no transcript to insert")
         try:
             self._activate_valid_target(target)
+            if expected_selection is not None:
+                current = self.read_selected_text(target)
+                if not current or current != expected_selection:
+                    raise SelectionMismatchError(
+                        "The selected text changed. The rewrite was not inserted."
+                    )
             try:
                 snapshot = self._clipboard.snapshot()
             except Exception as exc:

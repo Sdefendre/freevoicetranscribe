@@ -26,6 +26,7 @@ IMPORT_MODULES = (
     "lightning_whisper_mlx",
     "fvt.app",
     "fvt.audio",
+    "fvt.cleanup",
     "fvt.coordinator",
     "fvt.file_audio",
     "fvt.insertion",

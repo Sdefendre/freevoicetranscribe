@@ -1,6 +1,12 @@
 import unittest
 
-from fvt.state import AppState, InvalidTransition, StateStore
+from fvt.state import (
+    AppState,
+    DictationMode,
+    InvalidTransition,
+    StateStore,
+    idle_detail_for_mode,
+)
 
 
 class StateStoreTests(unittest.TestCase):
@@ -26,6 +32,13 @@ class StateStoreTests(unittest.TestCase):
         store = StateStore()
         with self.assertRaises(InvalidTransition):
             store.transition(AppState.INSERTING)
+
+    def test_idle_detail_covers_every_dictation_mode(self):
+        self.assertIn("insert", idle_detail_for_mode(DictationMode.DICTATE).lower())
+        self.assertIn("cleaned", idle_detail_for_mode(DictationMode.WRITE).lower())
+        self.assertIn("rewrite", idle_detail_for_mode(DictationMode.COMMAND).lower())
+        self.assertIn("F13", idle_detail_for_mode(DictationMode.WRITE, "F13"))
+        self.assertEqual(DictationMode.parse("nope"), DictationMode.DICTATE)
 
 
 if __name__ == "__main__":

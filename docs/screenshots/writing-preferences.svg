@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="540" viewBox="0 0 760 540" role="img" aria-label="Writing Preferences window mock">
+  <rect width="760" height="540" fill="#f4f4f5"/>
+  <text x="36" y="42" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#18181b">After: Writing Preferences</text>
+  <text x="36" y="68" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#52525b">Illustrative mock. Not captured from a running Mac.</text>
+  <rect x="70" y="92" width="620" height="420" rx="14" fill="#ffffff" stroke="#d4d4d8"/>
+  <text x="94" y="128" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="600" fill="#18181b">Optional on-device writing</text>
+  <text x="94" y="154" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#52525b">Write and Command use a small local model (~1 GB). Nothing leaves this Mac.</text>
+  <text x="94" y="192" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="600" fill="#18181b">Writing model is optional</text>
+  <text x="94" y="214" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#52525b">Dictate stays raw until you download this local model.</text>
+  <text x="94" y="248" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="600" fill="#18181b">Local writing model</text>
+  <text x="94" y="270" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#52525b">One-time download, about 1 GB</text>
+  <rect x="500" y="232" width="160" height="36" rx="8" fill="#18181b"/>
+  <text x="580" y="255" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#ffffff">Download Model</text>
+  <text x="94" y="316" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="600" fill="#18181b">Per-app tone</text>
+  <text x="94" y="338" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#52525b">When that app is frontmost, Write and Command use this style.</text>
+  <text x="94" y="372" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#18181b">Slack  com.tinyspeck.slackmacgap</text>
+  <rect x="94" y="382" width="420" height="28" rx="6" fill="#fafafa" stroke="#e4e4e7"/>
+  <text x="106" y="401" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#3f3f46">Casual and concise, like a Slack message.</text>
+  <text x="94" y="440" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#18181b">Mail  com.apple.mail</text>
+  <rect x="94" y="450" width="420" height="28" rx="6" fill="#fafafa" stroke="#e4e4e7"/>
+  <text x="106" y="469" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#3f3f46">Clear, complete sentences suitable for email.</text>
+</svg>

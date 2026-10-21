@@ -8,6 +8,7 @@ import os
 from PyObjCTools import AppHelper
 
 from .audio import AudioRecorder
+from .cleanup import LocalTextCleaner
 from .coordinator import AppCoordinator
 from .hotkey import FnListener
 from .insertion import MacTextInserter
@@ -63,6 +64,7 @@ def create_application(paths: AppPaths | None = None):
         logger=logger.getChild("coordinator"),
         settings_store=settings,
         temp_dir=paths.temp,
+        cleaner=LocalTextCleaner(paths, logger=logger.getChild("cleanup")),
         transcript_store=LastTranscriptStore.default(),
     )
     coordinator_ref["coordinator"] = coordinator
