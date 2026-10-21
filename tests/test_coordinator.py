@@ -6,7 +6,12 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from fvt.contracts import CapturedAudio, InsertResult, TargetApp
+from fvt.contracts import (
+    CapturedAudio,
+    InsertResult,
+    SelectionMismatchError,
+    TargetApp,
+)
 from fvt.coordinator import AppCoordinator
 from fvt.file_audio import SAMPLE_RATE, AudioFileCancelled
 from fvt.state import AppState, DictationMode, PermissionState
@@ -228,7 +233,11 @@ class FakeInserter:
     def read_selected_text(self, _target):
         return self.selected_text
 
-    def insert(self, text, target):
+    def insert(self, text, target, *, expected_selection=None):
+        if expected_selection is not None:
+            current = self.read_selected_text(target)
+            if not current or current != expected_selection:
+                raise SelectionMismatchError("selection changed")
         if self.fail:
             raise RuntimeError("paste denied")
         self.inserted.append((text, target))
@@ -240,13 +249,23 @@ class FakeInserter:
 
 class FakeCleaner:
     def __init__(
-        self, *, ready=True, present=True, fail=False, result=None, auto_ready=True
+        self,
+        *,
+        ready=True,
+        present=True,
+        fail=False,
+        result=None,
+        auto_ready=True,
+        prepare_error=False,
+        block_prepare=False,
     ):
         self._ready = ready
         self._present = present
         self.fail = fail
         self.result = result
         self.auto_ready = auto_ready
+        self.prepare_error = prepare_error
+        self.block_prepare = block_prepare
         self.calls = []
         self.prepare_calls = []
 
@@ -258,10 +277,25 @@ class FakeCleaner:
     def model_present(self):
         return self._present
 
-    def prepare(self, *, allow_download, on_status=None):
+    def prepare(
+        self,
+        *,
+        allow_download,
+        on_status=None,
+        cancel_event=None,
+        timeout_seconds=None,
+    ):
         if on_status:
             on_status("Preparing writing model")
         self.prepare_calls.append(allow_download)
+        if self.prepare_error:
+            raise RuntimeError("download failed")
+        if self.block_prepare:
+            if timeout_seconds is not None:
+                raise RuntimeError("download timed out")
+            if cancel_event is not None:
+                cancel_event.wait(2.0)
+                raise RuntimeError("download cancelled")
         if self.auto_ready:
             self._present = True
             self._ready = True
@@ -680,6 +714,82 @@ class CoordinatorWritingTests(unittest.TestCase):
             lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
         )
         self.assertIn("F13", self.coordinator.snapshot.detail)
+
+    def test_command_mode_aborts_when_selection_changes_before_paste(self):
+        self.cleaner.result = "Please send the draft today."
+        self.coordinator.set_dictation_mode("command")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.inserter.selected_text = "someone else edited this"
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.ERROR)
+        self.assertEqual(self.inserter.inserted, [])
+        self.assertEqual(self.inserter.copied, ["Please send the draft today."])
+        self.assertIn("left unchanged", self.coordinator.snapshot.detail)
+
+    def test_command_mode_aborts_when_selection_is_cleared_before_paste(self):
+        self.cleaner.result = "Please send the draft today."
+        self.coordinator.set_dictation_mode("command")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.inserter.selected_text = ""
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.ERROR)
+        self.assertEqual(self.inserter.inserted, [])
+        self.assertIn("left unchanged", self.coordinator.snapshot.detail)
+
+    def test_switching_to_write_does_not_download_the_writing_model(self):
+        self.cleaner.auto_ready = False
+        self.cleaner._ready = False
+        self.cleaner._present = False
+        self.coordinator.set_dictation_mode("write")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.WRITE
+        )
+        time.sleep(0.05)
+        self.assertEqual(self.cleaner.prepare_calls, [])
+        self.assertFalse(self.coordinator.snapshot.writing_model_busy)
+
+    def test_explicit_download_failure_clears_preparing_state(self):
+        self.cleaner.auto_ready = False
+        self.cleaner._ready = False
+        self.cleaner._present = False
+        self.cleaner.prepare_error = True
+        self.coordinator.download_writing_model()
+        wait_for(lambda: self.cleaner.prepare_calls == [True])
+        wait_for(lambda: not self.coordinator.snapshot.writing_model_busy)
+        self.assertIn("could not be prepared", self.coordinator.snapshot.detail.lower())
+
+    def test_writing_model_download_timeout_unsticks_preparing(self):
+        self.coordinator.shutdown()
+        self.cleaner = FakeCleaner(
+            ready=False, present=False, auto_ready=False, block_prepare=True
+        )
+        self.coordinator = AppCoordinator(
+            audio=self.audio,
+            transcriber=self.transcriber,
+            inserter=self.inserter,
+            hotkey=self.hotkey,
+            permissions=self.permissions,
+            transcript_store=self.transcript_store,
+            settings_store=self.settings,
+            cleaner=self.cleaner,
+            writing_download_timeout=0.05,
+            tap_max_hold=0,
+            temp_dir=Path(self.temp.name),
+        )
+        self.coordinator.start()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.coordinator.download_writing_model()
+        wait_for(lambda: self.cleaner.prepare_calls == [True])
+        wait_for(lambda: not self.coordinator.snapshot.writing_model_busy)
+        self.assertFalse(self.coordinator.snapshot.writing_model_ready)
 
 
 class CoordinatorSetupTests(unittest.TestCase):

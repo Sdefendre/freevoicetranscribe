@@ -48,6 +48,10 @@ class InsertResult:
     warning: str | None = None
 
 
+class SelectionMismatchError(RuntimeError):
+    """Command mode aborted because the selection changed or disappeared."""
+
+
 AudioLevelCallback = Callable[[np.ndarray], None]
 AudioLimitCallback = Callable[[], None]
 StatusCallback = Callable[[str], None]
@@ -95,7 +99,13 @@ class InsertionService(Protocol):
 
     def read_selected_text(self, target: TargetApp) -> str: ...
 
-    def insert(self, text: str, target: TargetApp) -> InsertResult: ...
+    def insert(
+        self,
+        text: str,
+        target: TargetApp,
+        *,
+        expected_selection: str | None = None,
+    ) -> InsertResult: ...
 
     def copy(self, text: str) -> None: ...
 
@@ -108,7 +118,12 @@ class TextCleanupService(Protocol):
     def model_present(self) -> bool: ...
 
     def prepare(
-        self, *, allow_download: bool, on_status: StatusCallback | None = None
+        self,
+        *,
+        allow_download: bool,
+        on_status: StatusCallback | None = None,
+        cancel_event=None,
+        timeout_seconds: float | None = None,
     ) -> None: ...
 
     def clean(

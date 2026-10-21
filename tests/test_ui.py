@@ -64,6 +64,8 @@ class FakeCoordinator:
         self.record_key_calls = []
         self.tones = {"com.apple.mail": "Formal and complete."}
         self.writing_downloads = 0
+        self.writing_cancels = 0
+        self.writing_cancels = 0
 
     def request_microphone(self):
         pass
@@ -79,6 +81,12 @@ class FakeCoordinator:
 
     def download_writing_model(self):
         self.writing_downloads += 1
+
+    def cancel_writing_model(self):
+        self.writing_cancels += 1
+
+    def cancel_writing_model(self):
+        self.writing_cancels += 1
 
     def app_tones(self):
         return dict(self.tones)
@@ -384,6 +392,18 @@ class NativeUITests(unittest.TestCase):
         self.assertTrue(settings._writing_button.isEnabled())
         settings.writingModelPressed_(None)
         self.assertEqual(coordinator.writing_downloads, 1)
+
+        settings.update(
+            AppSnapshot(
+                state=AppState.IDLE,
+                title="Ready",
+                writing_model_busy=True,
+            )
+        )
+        self.assertEqual(str(settings._writing_button.accessibilityLabel()), "Cancel")
+        self.assertTrue(settings._writing_button.isEnabled())
+        settings.writingModelPressed_(None)
+        self.assertEqual(coordinator.writing_cancels, 1)
         settings._window.orderOut_(None)
 
 

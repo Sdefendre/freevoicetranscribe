@@ -1132,8 +1132,8 @@ class SettingsWindow(NSObject):
             enabled = False
         elif snapshot.writing_model_busy:
             status = "Preparing… keep the app open"
-            title = "Preparing…"
-            enabled = False
+            title = "Cancel"
+            enabled = True
         elif snapshot.writing_model_present:
             status = "Downloaded but not loaded"
             title = "Load Model"
@@ -1212,6 +1212,11 @@ class SettingsWindow(NSObject):
         self._coordinator.download_model()
 
     def writingModelPressed_(self, _sender) -> None:
+        if self._snapshot.writing_model_busy:
+            cancel = getattr(self._coordinator, "cancel_writing_model", None)
+            if cancel is not None:
+                cancel()
+            return
         downloader = getattr(self._coordinator, "download_writing_model", None)
         if downloader is not None:
             downloader()

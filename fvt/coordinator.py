@@ -19,6 +19,7 @@ from .contracts import (
     HotkeyService,
     InsertionService,
     PermissionService,
+    SelectionMismatchError,
     TargetApp,
     TextCleanupService,
     TranscriptionService,
@@ -79,6 +80,7 @@ class EventType(StrEnum):
     SET_DICTATION_MODE = "set_dictation_mode"
     SET_APP_TONES = "set_app_tones"
     DOWNLOAD_WRITING_MODEL = "download_writing_model"
+    CANCEL_WRITING_MODEL = "cancel_writing_model"
     WRITING_MODEL_STATUS = "writing_model_status"
     WRITING_MODEL_READY = "writing_model_ready"
     WRITING_MODEL_FAILED = "writing_model_failed"
@@ -179,6 +181,7 @@ class AppCoordinator:
         shutdown_timeout: float = 2.0,
         double_tap_window: float = 0.35,
         tap_max_hold: float = 0.25,
+        writing_download_timeout: float = 600.0,
     ) -> None:
         self.audio = audio
         self.transcriber = transcriber
@@ -192,6 +195,7 @@ class AppCoordinator:
         self._shutdown_timeout = shutdown_timeout
         self._double_tap_window = double_tap_window
         self._tap_max_hold = tap_max_hold
+        self._writing_download_timeout = writing_download_timeout
         self._record_key = "fn"
         self._press_started_at = 0.0
         self._awaiting_double_tap = False
@@ -215,6 +219,9 @@ class AppCoordinator:
         self._download_progress = None
         self._model_profile = self._load_model_profile()
         self._writing_model_busy = False
+        self._writing_cancel = threading.Event()
+        self._writing_prepare_id = 0
+        self._require_selection_match = False
         self._dictation_mode = DictationMode.DICTATE
         self._app_tones = dict(DEFAULT_APP_TONES)
         self._selected_text = ""
@@ -317,6 +324,9 @@ class AppCoordinator:
     def download_writing_model(self) -> None:
         self.submit(EventType.DOWNLOAD_WRITING_MODEL)
 
+    def cancel_writing_model(self) -> None:
+        self.submit(EventType.CANCEL_WRITING_MODEL)
+
     def set_dictation_mode(self, mode: str) -> None:
         self.submit(EventType.SET_DICTATION_MODE, mode)
 
@@ -404,6 +414,7 @@ class AppCoordinator:
             EventType.SET_DICTATION_MODE: self._set_dictation_mode,
             EventType.SET_APP_TONES: self._set_app_tones,
             EventType.DOWNLOAD_WRITING_MODEL: self._download_writing_model,
+            EventType.CANCEL_WRITING_MODEL: self._cancel_writing_model,
             EventType.WRITING_MODEL_STATUS: self._writing_model_status,
             EventType.WRITING_MODEL_READY: self._writing_model_ready,
             EventType.WRITING_MODEL_FAILED: self._writing_model_failed,
@@ -752,23 +763,45 @@ class AppCoordinator:
     def _prepare_writing_model(self, *, allow_download: bool) -> None:
         if self.cleaner is None or self._writing_model_busy:
             return
+        self._writing_cancel.clear()
+        self._writing_prepare_id += 1
+        prepare_id = self._writing_prepare_id
         self._writing_model_busy = True
         self._store.update(**self._writing_fields())
         self._publish()
 
         def worker() -> None:
             try:
-                self.cleaner.prepare(
-                    allow_download=allow_download,
-                    on_status=lambda text: self.submit(
+                kwargs = {
+                    "allow_download": allow_download,
+                    "on_status": lambda text: self.submit(
                         EventType.WRITING_MODEL_STATUS, text
                     ),
-                )
-                self.submit(EventType.WRITING_MODEL_READY)
+                    "cancel_event": self._writing_cancel,
+                }
+                if allow_download:
+                    kwargs["timeout_seconds"] = self._writing_download_timeout
+                self.cleaner.prepare(**kwargs)
+                self.submit(EventType.WRITING_MODEL_READY, prepare_id)
             except Exception as exc:
-                self.submit(EventType.WRITING_MODEL_FAILED, exc)
+                self.submit(EventType.WRITING_MODEL_FAILED, (prepare_id, exc))
 
         self._executor.submit(worker)
+
+    def _cancel_writing_model(self, _payload=None) -> None:
+        self._writing_cancel.set()
+        self._writing_prepare_id += 1
+        self._writing_model_busy = False
+        if self._store.snapshot.state is AppState.IDLE:
+            self._store.update(
+                title="Ready",
+                detail=self._idle_detail(),
+                **self._writing_fields(),
+            )
+            self._publish()
+            return
+        self._store.update(**self._writing_fields())
+        self._publish()
 
     def _writing_model_status(self, payload) -> None:
         if self._store.snapshot.state in {
@@ -788,7 +821,9 @@ class AppCoordinator:
         )
         self._publish()
 
-    def _writing_model_ready(self, _payload=None) -> None:
+    def _writing_model_ready(self, payload) -> None:
+        if payload != self._writing_prepare_id:
+            return
         self._writing_model_busy = False
         if self._store.snapshot.state is AppState.IDLE:
             self._store.update(
@@ -802,8 +837,15 @@ class AppCoordinator:
         self._publish()
 
     def _writing_model_failed(self, payload) -> None:
+        prepare_id, error = (
+            payload
+            if isinstance(payload, tuple) and len(payload) == 2
+            else (None, payload)
+        )
+        if prepare_id is not None and prepare_id != self._writing_prepare_id:
+            return
         self._writing_model_busy = False
-        self._logger.warning("Writing model setup failed: %s", type(payload).__name__)
+        self._logger.warning("Writing model setup failed: %s", type(error).__name__)
         if self._store.snapshot.state is AppState.IDLE:
             self._store.update(
                 title="Ready",
@@ -833,9 +875,10 @@ class AppCoordinator:
         if (
             mode is not DictationMode.DICTATE
             and self.cleaner is not None
+            and self.cleaner.model_present
             and not self.cleaner.is_ready
         ):
-            self._prepare_writing_model(allow_download=not self.cleaner.model_present)
+            self._prepare_writing_model(allow_download=False)
 
     def _set_app_tones(self, payload) -> None:
         if not isinstance(payload, dict):
@@ -980,8 +1023,10 @@ class AppCoordinator:
                 )
                 return
             self._selected_text = selected
+            self._require_selection_match = True
         else:
             self._selected_text = ""
+            self._require_selection_match = False
         self._store.update(
             title="Opening microphone",
             detail="Audio stays on this Mac.",
@@ -1257,8 +1302,19 @@ class AppCoordinator:
                 text, "The original app is no longer available."
             )
             return
+        expected_selection = (
+            self._selected_text if self._require_selection_match else None
+        )
         try:
-            result = self.inserter.insert(text, target)
+            result = self.inserter.insert(
+                text, target, expected_selection=expected_selection
+            )
+        except SelectionMismatchError:
+            self._copy_after_insert_failure(
+                text,
+                "The selection changed or was cleared. Your original text was left unchanged.",
+            )
+            return
         except Exception as exc:
             self._logger.warning("Text insertion failed: %s", type(exc).__name__)
             self._copy_after_insert_failure(
@@ -1268,6 +1324,7 @@ class AppCoordinator:
             return
         self._target = None
         self._selected_text = ""
+        self._require_selection_match = False
         if result.warning:
             self._set_error(
                 "Text inserted with a clipboard warning",
@@ -1297,6 +1354,7 @@ class AppCoordinator:
             )
         self._target = None
         self._selected_text = ""
+        self._require_selection_match = False
         self._set_error(
             "Transcript copied" if copied else "Transcript is available in the menu",
             detail
@@ -1333,6 +1391,7 @@ class AppCoordinator:
             target_screen=None,
         )
         self._selected_text = ""
+        self._require_selection_match = False
         self._publish()
 
     def _audio_limit(self, _payload=None) -> None:

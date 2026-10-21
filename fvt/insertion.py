@@ -13,7 +13,7 @@ import Quartz
 from Foundation import NSData
 from pynput import keyboard as pynput_keyboard
 
-from .contracts import InsertResult, ScreenFrame, TargetApp
+from .contracts import InsertResult, ScreenFrame, SelectionMismatchError, TargetApp
 
 try:
     import ApplicationServices as AX
@@ -344,11 +344,23 @@ class MacTextInserter:
             )
         return app
 
-    def insert(self, text: str, target: TargetApp) -> InsertResult:
+    def insert(
+        self,
+        text: str,
+        target: TargetApp,
+        *,
+        expected_selection: str | None = None,
+    ) -> InsertResult:
         if not text:
             raise InsertionError("There is no transcript to insert")
         try:
             self._activate_valid_target(target)
+            if expected_selection is not None:
+                current = self.read_selected_text(target)
+                if not current or current != expected_selection:
+                    raise SelectionMismatchError(
+                        "The selected text changed. The rewrite was not inserted."
+                    )
             try:
                 snapshot = self._clipboard.snapshot()
             except Exception as exc:

@@ -1,7 +1,7 @@
 import unittest
 from contextlib import contextmanager
 
-from fvt.contracts import ScreenFrame, TargetApp
+from fvt.contracts import ScreenFrame, SelectionMismatchError, TargetApp
 from fvt.insertion import (
     ClipboardSnapshot,
     ClipboardStageError,
@@ -213,6 +213,17 @@ class InsertionTests(unittest.TestCase):
         )
         target = TargetApp(pid=123, name="Test", bundle_id="test.app")
         self.assertEqual(service.read_selected_text(target), "")
+
+    def test_insert_aborts_before_paste_when_selection_changes(self):
+        app = FakeApplication()
+        clipboard = FakeClipboard()
+        service, accessibility = self._service(app, clipboard, FakeKeyboard())
+        target = self._capture(service)
+        accessibility.selected = "changed later"
+        with self.assertRaises(SelectionMismatchError):
+            service.insert("rewrite", target, expected_selection="already highlighted")
+        self.assertEqual(clipboard.contents, "original")
+        self.assertFalse(clipboard.restored)
 
 
 if __name__ == "__main__":
