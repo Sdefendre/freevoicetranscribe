@@ -1178,9 +1178,7 @@ class SettingsWindow(NSObject):
             field.setStringValue_(str(prompt))
             field.setTarget_(self)
             field.setAction_(b"toneEdited:")
-            field.setAccessibilityLabel_(
-                name if name == bundle_id else f"{name} tone"
-            )
+            field.setAccessibilityLabel_(name if name == bundle_id else f"{name} tone")
             self._tone_fields[field] = bundle_id
             remove = _button(
                 AppKit.NSMakeRect(364, y - 2, 88, 26),

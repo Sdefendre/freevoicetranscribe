@@ -85,9 +85,6 @@ class FakeCoordinator:
     def cancel_writing_model(self):
         self.writing_cancels += 1
 
-    def cancel_writing_model(self):
-        self.writing_cancels += 1
-
     def app_tones(self):
         return dict(self.tones)
 

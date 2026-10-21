@@ -37,9 +37,7 @@ class StateStoreTests(unittest.TestCase):
         self.assertIn("insert", idle_detail_for_mode(DictationMode.DICTATE).lower())
         self.assertIn("cleaned", idle_detail_for_mode(DictationMode.WRITE).lower())
         self.assertIn("rewrite", idle_detail_for_mode(DictationMode.COMMAND).lower())
-        self.assertIn(
-            "F13", idle_detail_for_mode(DictationMode.WRITE, "F13")
-        )
+        self.assertIn("F13", idle_detail_for_mode(DictationMode.WRITE, "F13"))
         self.assertEqual(DictationMode.parse("nope"), DictationMode.DICTATE)
 
 

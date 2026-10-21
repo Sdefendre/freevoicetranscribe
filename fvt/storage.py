@@ -71,6 +71,7 @@ KNOWN_APP_NAMES = {
     "com.apple.mail": "Mail",
 }
 
+
 @dataclass(frozen=True, slots=True)
 class AppPaths:
     support: Path
