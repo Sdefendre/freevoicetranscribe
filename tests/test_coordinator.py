@@ -358,8 +358,9 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         path = self._write_wav("meeting.wav", 75)
         self.coordinator.transcribe_audio_file(path)
         wait_for(
-            lambda: self.coordinator.file_result
-            == "hello world hello world hello world"
+            lambda: (
+                self.coordinator.file_result == "hello world hello world hello world"
+            )
         )
         self.assertEqual(self.coordinator.snapshot.state, AppState.IDLE)
         self.assertEqual(self.coordinator.snapshot.title, "File transcribed")
