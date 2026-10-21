@@ -43,6 +43,9 @@ class FakeCoordinator:
         self.record_key = key_id
         self.record_key_calls.append(key_id)
 
+    def select_model_profile(self, profile_id):
+        self.selected_profile = profile_id
+
 
 class NativeUITests(unittest.TestCase):
     @classmethod
@@ -103,6 +106,66 @@ class NativeUITests(unittest.TestCase):
         setup.show()
         self.assertTrue(setup._window.isVisible())
         setup._window.orderOut_(None)
+
+    def test_setup_and_settings_expose_fast_accurate_picker(self):
+        coordinator = FakeCoordinator()
+        setup = SetupWindow.alloc().initWithCoordinator_(coordinator)
+        settings = SettingsWindow.alloc().initWithCoordinator_(coordinator)
+        snapshot = AppSnapshot(
+            state=AppState.SETUP_REQUIRED,
+            title="Speech model required",
+            detail="Download the Fast model once, then transcription works locally.",
+            readiness=Readiness(
+                microphone=PermissionState.GRANTED,
+                accessibility=PermissionState.GRANTED,
+                model_profile="fast",
+            ),
+        )
+        setup.update(snapshot)
+        settings.update(snapshot)
+
+        self.assertEqual(str(setup._model_picker.labelForSegment_(0)), "Fast")
+        self.assertEqual(str(setup._model_picker.labelForSegment_(1)), "Accurate")
+        self.assertEqual(int(setup._model_picker.selectedSegment()), 0)
+        self.assertEqual(
+            str(setup._model_button.accessibilityLabel()), "Download Model"
+        )
+        self.assertIn("Fast", str(setup._model_status.stringValue()))
+        self.assertEqual(str(settings._picker.labelForSegment_(0)), "Fast")
+        self.assertEqual(int(settings._picker.selectedSegment()), 0)
+        self.assertEqual(
+            str(settings._download_button.accessibilityLabel()), "Download Fast"
+        )
+
+        setup.modelProfileChanged_(setup._model_picker)
+        self.assertEqual(coordinator.selected_profile, "fast")
+        settings._picker.setSelectedSegment_(1)
+        settings.modelProfileChanged_(settings._picker)
+        self.assertEqual(coordinator.selected_profile, "accurate")
+        setup._window.orderOut_(None)
+        settings._window.orderOut_(None)
+
+    def test_download_progress_updates_the_progress_bar(self):
+        setup = SetupWindow.alloc().initWithCoordinator_(FakeCoordinator())
+        settings = SettingsWindow.alloc().initWithCoordinator_(FakeCoordinator())
+        snapshot = AppSnapshot(
+            state=AppState.SETUP_REQUIRED,
+            title="Downloading Fast model · 42%",
+            readiness=Readiness(
+                model_busy=True,
+                model_profile="fast",
+                model_download_progress=0.42,
+            ),
+        )
+        setup.update(snapshot)
+        settings.update(snapshot)
+        self.assertFalse(setup._model_progress.isHidden())
+        self.assertAlmostEqual(setup._model_progress.doubleValue(), 0.42, places=2)
+        self.assertFalse(settings._progress.isHidden())
+        self.assertAlmostEqual(settings._progress.doubleValue(), 0.42, places=2)
+        self.assertIn("42%", str(settings._status.stringValue()))
+        setup._window.orderOut_(None)
+        settings._window.orderOut_(None)
 
     def test_hud_frame_is_clamped_inside_negative_and_narrow_displays(self):
         frames = (

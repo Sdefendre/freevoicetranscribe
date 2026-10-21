@@ -21,6 +21,12 @@ from .contracts import (
     TargetApp,
     TranscriptionService,
 )
+from .models import (
+    model_name_for_profile,
+    normalize_profile,
+    profile_for,
+    profile_for_model_name,
+)
 from .state import AppSnapshot, AppState, PermissionState, Readiness, StateStore
 from .storage import LastTranscriptStore, normalize_record_key, record_key_label
 
@@ -29,6 +35,7 @@ class EventType(StrEnum):
     START = "start"
     REFRESH_SETUP = "refresh_setup"
     DOWNLOAD_MODEL = "download_model"
+    SELECT_MODEL = "select_model"
     MODEL_STATUS = "model_status"
     MODEL_READY = "model_ready"
     MODEL_FAILED = "model_failed"
@@ -137,12 +144,12 @@ class AppCoordinator:
         self.inserter = inserter
         self.hotkey = hotkey
         self.permissions = permissions
+        self.settings_store = settings_store
         self._logger = logger or logging.getLogger("freevoicetranscribe.coordinator")
         self._min_audio_seconds = min_audio_seconds
         self._shutdown_timeout = shutdown_timeout
         self._double_tap_window = double_tap_window
         self._tap_max_hold = tap_max_hold
-        self.settings_store = settings_store
         self._record_key = "fn"
         self._press_started_at = 0.0
         self._awaiting_double_tap = False
@@ -160,6 +167,8 @@ class AppCoordinator:
         self._snapshot_observer: SnapshotObserver | None = None
         self._audio_observer: AudioObserver | None = None
         self._model_busy = False
+        self._download_progress = None
+        self._model_profile = self._load_model_profile()
         self._hotkey_started = False
         self._hands_free = False
         self._target: TargetApp | None = None
@@ -237,6 +246,9 @@ class AppCoordinator:
     def download_model(self) -> None:
         self.submit(EventType.DOWNLOAD_MODEL)
 
+    def select_model_profile(self, profile_id: str) -> None:
+        self.submit(EventType.SELECT_MODEL, profile_id)
+
     def request_microphone(self) -> None:
         self.permissions.request_microphone(
             lambda _granted: self.submit(EventType.REFRESH_SETUP)
@@ -284,6 +296,7 @@ class AppCoordinator:
             EventType.START: self._handle_start,
             EventType.REFRESH_SETUP: self._refresh_readiness,
             EventType.DOWNLOAD_MODEL: self._download_model,
+            EventType.SELECT_MODEL: self._select_model,
             EventType.MODEL_STATUS: self._model_status,
             EventType.MODEL_READY: self._model_ready,
             EventType.MODEL_FAILED: self._model_failed,
@@ -314,6 +327,8 @@ class AppCoordinator:
             model_present=self.transcriber.model_present,
             model_ready=self.transcriber.is_ready,
             model_busy=self._model_busy,
+            model_profile=self._model_profile,
+            model_download_progress=self._download_progress,
         )
 
     def _refresh_readiness(self, _payload=None) -> None:
@@ -461,9 +476,10 @@ class AppCoordinator:
                 "setup",
             )
         if not readiness.model_present:
+            label = profile_for(readiness.model_profile).label
             return (
                 "Speech model required",
-                "Download the model once, then transcription works locally.",
+                f"Download the {label} model once, then transcription works locally.",
                 "setup",
             )
         return (
@@ -479,10 +495,24 @@ class AppCoordinator:
         self._refresh_readiness()
 
         def worker() -> None:
+            last_text = "Preparing speech model"
+
+            def on_status(text: str) -> None:
+                nonlocal last_text
+                last_text = text
+                self.submit(EventType.MODEL_STATUS, {"text": text})
+
+            def on_progress(fraction: float) -> None:
+                self.submit(
+                    EventType.MODEL_STATUS,
+                    {"text": last_text, "progress": fraction},
+                )
+
             try:
                 self.transcriber.prepare(
                     allow_download=allow_download,
-                    on_status=lambda text: self.submit(EventType.MODEL_STATUS, text),
+                    on_status=on_status,
+                    on_progress=on_progress,
                 )
                 self.submit(EventType.MODEL_READY)
             except Exception as exc:
@@ -493,11 +523,73 @@ class AppCoordinator:
     def _download_model(self, _payload=None) -> None:
         self._prepare_model(allow_download=True)
 
+    def _select_model(self, payload) -> None:
+        profile_id = normalize_profile(payload)
+        state = self._store.snapshot.state
+        if self._model_busy or state in {
+            AppState.RECORDING,
+            AppState.TRANSCRIBING,
+            AppState.INSERTING,
+        }:
+            self._publish()
+            return
+        if profile_id == self._model_profile and self.transcriber.is_ready:
+            self._refresh_readiness()
+            return
+        self._model_profile = profile_id
+        if self.settings_store is not None:
+            try:
+                self.settings_store.save_speech_model_profile(profile_id)
+            except Exception as exc:
+                self._logger.warning(
+                    "Speech model preference could not be saved: %s",
+                    type(exc).__name__,
+                )
+        setter = getattr(self.transcriber, "set_model_name", None)
+        if callable(setter):
+            setter(model_name_for_profile(profile_id))
+        if self.transcriber.model_present and not self.transcriber.is_ready:
+            self._prepare_model(allow_download=False)
+            return
+        self._refresh_readiness()
+
+    def _load_model_profile(self) -> str:
+        stored = None
+        if self.settings_store is not None:
+            try:
+                stored = self.settings_store.speech_model_profile()
+            except Exception as exc:
+                self._logger.warning(
+                    "Speech model preference could not be loaded: %s",
+                    type(exc).__name__,
+                )
+        if stored is None:
+            current_name = getattr(self.transcriber, "model_name", None)
+            profile = (
+                profile_for_model_name(current_name)
+                if isinstance(current_name, str)
+                else None
+            )
+            return profile.id if profile is not None else normalize_profile(None)
+        return normalize_profile(stored)
+
     def _model_status(self, payload) -> None:
+        text = "Preparing speech model"
+        progress = None
+        if isinstance(payload, dict):
+            text = str(payload.get("text") or text)
+            raw_progress = payload.get("progress")
+            if isinstance(raw_progress, (int, float)):
+                progress = min(1.0, max(0.0, float(raw_progress)))
+        elif payload:
+            text = str(payload)
+        self._download_progress = progress
+        if progress is not None:
+            text = f"{text} · {int(progress * 100)}%"
         readiness = self._readiness()
         self._store.transition(
             AppState.SETUP_REQUIRED,
-            title=str(payload or "Preparing speech model"),
+            title=text,
             detail="Keep the app open. Audio is not uploaded.",
             readiness=readiness,
             error_action="setup",
@@ -506,10 +598,12 @@ class AppCoordinator:
 
     def _model_ready(self, _payload=None) -> None:
         self._model_busy = False
+        self._download_progress = None
         self._refresh_readiness()
 
     def _model_failed(self, payload) -> None:
         self._model_busy = False
+        self._download_progress = None
         self._logger.warning("Model setup failed: %s", type(payload).__name__)
         readiness = self._readiness()
         self._store.transition(

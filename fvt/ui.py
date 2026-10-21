@@ -12,6 +12,7 @@ import rumps
 from Foundation import NSAttributedString, NSObject, NSTimer
 
 from .contracts import ScreenFrame
+from .models import PROFILE_ORDER, profile_for
 from .state import AppSnapshot, AppState, PermissionState
 from .storage import RECORD_KEY_IDS, RECORD_KEY_MENU_LABELS, normalize_record_key
 
@@ -67,6 +68,59 @@ def _set_button_state(
             )
         except Exception:
             pass
+
+
+def _profile_segment_index(profile_id: str) -> int:
+    try:
+        return PROFILE_ORDER.index(profile_id)
+    except ValueError:
+        return PROFILE_ORDER.index("accurate")
+
+
+def _segmented_profile_picker(frame, target, action: bytes):
+    """Two-option Fast / Accurate control shared by setup and settings."""
+    control = AppKit.NSSegmentedControl.alloc().initWithFrame_(frame)
+    control.setSegmentCount_(len(PROFILE_ORDER))
+    for index, profile_id in enumerate(PROFILE_ORDER):
+        control.setLabel_forSegment_(profile_for(profile_id).label, index)
+    control.setSelectedSegment_(_profile_segment_index("accurate"))
+    control.setTarget_(target)
+    control.setAction_(action)
+    control.setSegmentStyle_(AppKit.NSSegmentStyleRounded)
+    control.setTrackingMode_(AppKit.NSSegmentSwitchTrackingSelectOne)
+    control.setAccessibilityLabel_("Speech model")
+    control.setAccessibilityHelp_(
+        "Fast is a smaller local Whisper model. Accurate is distil-large-v3."
+    )
+    return control
+
+
+def _progress_bar(frame):
+    indicator = AppKit.NSProgressIndicator.alloc().initWithFrame_(frame)
+    indicator.setStyle_(AppKit.NSProgressIndicatorStyleBar)
+    indicator.setIndeterminate_(False)
+    indicator.setMinValue_(0.0)
+    indicator.setMaxValue_(1.0)
+    indicator.setDisplayedWhenStopped_(False)
+    indicator.setHidden_(True)
+    indicator.setAccessibilityLabel_("Speech model download progress")
+    return indicator
+
+
+def _sync_profile_picker(control, profile_id: str, *, enabled: bool) -> None:
+    index = _profile_segment_index(profile_id)
+    if int(control.selectedSegment()) != index:
+        control.setSelectedSegment_(index)
+    control.setEnabled_(enabled)
+
+
+def _sync_progress_bar(indicator, progress: float | None) -> None:
+    if progress is None:
+        indicator.setHidden_(True)
+        indicator.setDoubleValue_(0.0)
+        return
+    indicator.setHidden_(False)
+    indicator.setDoubleValue_(min(1.0, max(0.0, float(progress))))
 
 
 def _button(frame, title: str, target, action: bytes):
@@ -518,15 +572,18 @@ class SetupWindow(NSObject):
         self._mic_button = None
         self._access_button = None
         self._model_button = None
+        self._model_picker = None
+        self._model_progress = None
         self._done_button = None
         self._snapshot = AppSnapshot()
+        self._syncing_picker = False
         return self
 
     @objc.python_method
     def _ensure_window(self) -> None:
         if self._window is not None:
             return
-        rect = AppKit.NSMakeRect(0, 0, 540, 416)
+        rect = AppKit.NSMakeRect(0, 0, 540, 468)
         self._window = (
             AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
                 rect,
@@ -543,13 +600,13 @@ class SetupWindow(NSObject):
         content = self._window.contentView()
 
         title = _label(
-            AppKit.NSMakeRect(28, 362, 484, 28),
+            AppKit.NSMakeRect(28, 414, 484, 28),
             "Speak anywhere. Your audio stays on this Mac.",
             size=19,
             bold=True,
         )
         subtitle = _label(
-            AppKit.NSMakeRect(28, 320, 484, 36),
+            AppKit.NSMakeRect(28, 372, 484, 36),
             "Complete these three checks once. Recordings are deleted after local transcription.",
             size=12,
         )
@@ -558,22 +615,30 @@ class SetupWindow(NSObject):
         content.addSubview_(subtitle)
 
         self._message_title = _label(
-            AppKit.NSMakeRect(28, 278, 484, 22), "Checking local setup", bold=True
+            AppKit.NSMakeRect(28, 330, 484, 22), "Checking local setup", bold=True
         )
         self._message_detail = _label(
-            AppKit.NSMakeRect(28, 244, 484, 34),
+            AppKit.NSMakeRect(28, 296, 484, 34),
             "The app will show the next required step here.",
             size=12,
         )
         self._message_detail.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
         separator = AppKit.NSBox.alloc().initWithFrame_(
-            AppKit.NSMakeRect(28, 238, 484, 1)
+            AppKit.NSMakeRect(28, 290, 484, 1)
         )
         separator.setBoxType_(AppKit.NSBoxSeparator)
         content.addSubview_(self._message_title)
         content.addSubview_(self._message_detail)
         content.addSubview_(separator)
 
+        picker_label = _label(
+            AppKit.NSMakeRect(28, 252, 210, 22), "Speech model", bold=True
+        )
+        self._model_picker = _segmented_profile_picker(
+            AppKit.NSMakeRect(248, 250, 168, 26),
+            self,
+            b"modelProfileChanged:",
+        )
         self._mic_status, self._mic_button = self._add_row(
             content, 188, "Microphone", b"microphonePressed:"
         )
@@ -583,6 +648,10 @@ class SetupWindow(NSObject):
         self._model_status, self._model_button = self._add_row(
             content, 64, "Private speech model", b"modelPressed:"
         )
+        self._model_progress = _progress_bar(AppKit.NSMakeRect(28, 50, 332, 12))
+        content.addSubview_(picker_label)
+        content.addSubview_(self._model_picker)
+        content.addSubview_(self._model_progress)
         self._done_button = _button(
             AppKit.NSMakeRect(376, 16, 136, 32),
             "Start Dictating",
@@ -639,8 +708,9 @@ class SetupWindow(NSObject):
             unknown_action="Open Settings",
         )
 
+        profile = profile_for(readiness.model_profile)
         if readiness.model_ready:
-            model_status = "Ready — runs locally"
+            model_status = f"Ready — {profile.label} runs locally"
             _set_label_text(
                 self._model_status,
                 model_status,
@@ -654,6 +724,11 @@ class SetupWindow(NSObject):
             )
         elif readiness.model_busy:
             model_status = "Preparing… keep the app open"
+            if readiness.model_download_progress is not None:
+                model_status = (
+                    f"Downloading {profile.label}… "
+                    f"{int(readiness.model_download_progress * 100)}%"
+                )
             _set_label_text(
                 self._model_status,
                 model_status,
@@ -667,9 +742,9 @@ class SetupWindow(NSObject):
             )
         else:
             model_status = (
-                "Downloaded but not loaded"
+                f"{profile.label} downloaded but not loaded"
                 if readiness.model_present
-                else "One-time download required"
+                else f"{profile.label} needs a one-time download"
             )
             _set_label_text(
                 self._model_status,
@@ -682,6 +757,14 @@ class SetupWindow(NSObject):
                 enabled=True,
                 help_text=model_status,
             )
+        self._syncing_picker = True
+        _sync_profile_picker(
+            self._model_picker,
+            readiness.model_profile,
+            enabled=not readiness.model_busy,
+        )
+        self._syncing_picker = False
+        _sync_progress_bar(self._model_progress, readiness.model_download_progress)
 
         can_start = readiness.ready and snapshot.state is AppState.IDLE
         _set_button_state(
@@ -745,11 +828,20 @@ class SetupWindow(NSObject):
     def modelPressed_(self, _sender) -> None:
         self._coordinator.download_model()
 
+    def modelProfileChanged_(self, sender) -> None:
+        if self._syncing_picker:
+            return
+        index = int(sender.selectedSegment())
+        if 0 <= index < len(PROFILE_ORDER):
+            self._coordinator.select_model_profile(PROFILE_ORDER[index])
+
     def donePressed_(self, _sender) -> None:
         self._window.orderOut_(None)
 
 
 class SettingsWindow(NSObject):
+    """Preferences for the push-to-talk hotkey and the local speech model."""
+
     def initWithCoordinator_(self, coordinator):
         self = objc.super(SettingsWindow, self).init()
         if self is None:
@@ -757,13 +849,20 @@ class SettingsWindow(NSObject):
         self._coordinator = coordinator
         self._window = None
         self._hotkey_popup = None
+        self._summary = None
+        self._status = None
+        self._picker = None
+        self._progress = None
+        self._download_button = None
+        self._snapshot = AppSnapshot()
+        self._syncing_picker = False
         return self
 
     @objc.python_method
     def _ensure_window(self) -> None:
         if self._window is not None:
             return
-        rect = AppKit.NSMakeRect(0, 0, 540, 248)
+        rect = AppKit.NSMakeRect(0, 0, 540, 480)
         self._window = (
             AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
                 rect,
@@ -779,30 +878,25 @@ class SettingsWindow(NSObject):
         self._window.center()
         content = self._window.contentView()
 
-        title = _label(
-            AppKit.NSMakeRect(28, 196, 484, 28),
+        hotkey_title = _label(
+            AppKit.NSMakeRect(28, 436, 484, 28),
             "Dictation shortcut",
             size=19,
             bold=True,
         )
-        subtitle = _label(
-            AppKit.NSMakeRect(28, 144, 484, 48),
+        hotkey_subtitle = _label(
+            AppKit.NSMakeRect(28, 388, 484, 44),
             "Hold the hotkey to record, then release to insert. Double-tap to lock recording, then tap again to finish.",
             size=12,
         )
-        subtitle.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
-        content.addSubview_(title)
-        content.addSubview_(subtitle)
-
-        name_label = _label(
-            AppKit.NSMakeRect(28, 108, 210, 22),
+        hotkey_subtitle.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+        hotkey_name = _label(
+            AppKit.NSMakeRect(28, 352, 210, 22),
             "Push-to-talk hotkey",
             bold=True,
         )
-        content.addSubview_(name_label)
-
         popup = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
-            AppKit.NSMakeRect(28, 72, 220, 26),
+            AppKit.NSMakeRect(28, 316, 220, 26),
             False,
         )
         for key_id in RECORD_KEY_IDS:
@@ -815,15 +909,63 @@ class SettingsWindow(NSObject):
             "Choose the key that starts and stops hold-to-talk recording."
         )
         self._hotkey_popup = popup
-        content.addSubview_(popup)
-
-        hint = _label(
-            AppKit.NSMakeRect(28, 20, 484, 36),
+        hotkey_hint = _label(
+            AppKit.NSMakeRect(28, 276, 484, 36),
             "Esc cancels. While you hold the hotkey, Space also locks recording.",
             size=12,
         )
-        hint.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
-        content.addSubview_(hint)
+        hotkey_hint.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+
+        model_title = _label(
+            AppKit.NSMakeRect(28, 236, 484, 22),
+            "Speech model",
+            size=17,
+            bold=True,
+        )
+        intro = _label(
+            AppKit.NSMakeRect(28, 196, 484, 36),
+            "Choose a local model. Fast is smaller and quicker. Accurate is the default and more precise. Both stay on this Mac.",
+            size=12,
+        )
+        intro.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+        self._picker = _segmented_profile_picker(
+            AppKit.NSMakeRect(28, 160, 220, 28),
+            self,
+            b"modelProfileChanged:",
+        )
+        self._summary = _label(
+            AppKit.NSMakeRect(28, 116, 484, 36),
+            profile_for("accurate").detail,
+            size=12,
+        )
+        self._summary.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+        self._status = _label(
+            AppKit.NSMakeRect(28, 88, 484, 22),
+            "Checking…",
+            size=12,
+        )
+        self._progress = _progress_bar(AppKit.NSMakeRect(28, 62, 280, 12))
+        self._download_button = _button(
+            AppKit.NSMakeRect(376, 16, 140, 32),
+            "Download Model",
+            self,
+            b"downloadPressed:",
+        )
+        for view in (
+            hotkey_title,
+            hotkey_subtitle,
+            hotkey_name,
+            popup,
+            hotkey_hint,
+            model_title,
+            intro,
+            self._picker,
+            self._summary,
+            self._status,
+            self._progress,
+            self._download_button,
+        ):
+            content.addSubview_(view)
         self._sync_popup()
 
     @objc.python_method
@@ -845,10 +987,58 @@ class SettingsWindow(NSObject):
         self._window.makeKeyAndOrderFront_(None)
 
     @objc.python_method
-    def update(self, _snapshot: AppSnapshot) -> None:
-        if self._window is None:
-            return
+    def update(self, snapshot: AppSnapshot) -> None:
+        self._ensure_window()
+        self._snapshot = snapshot
         self._sync_popup()
+        readiness = snapshot.readiness
+        profile = profile_for(readiness.model_profile)
+        _set_label_text(
+            self._summary,
+            f"{profile.summary} {profile.detail}",
+            accessibility_label=f"{profile.label} model: {profile.detail}",
+        )
+        if readiness.model_ready:
+            status = f"{profile.label} is ready and runs locally."
+            button_title = "Ready"
+            button_enabled = False
+        elif readiness.model_busy:
+            if readiness.model_download_progress is not None:
+                status = (
+                    f"Downloading {profile.label}… "
+                    f"{int(readiness.model_download_progress * 100)}%"
+                )
+            else:
+                status = f"Preparing {profile.label}… keep the app open."
+            button_title = "Preparing…"
+            button_enabled = False
+        elif readiness.model_present:
+            status = f"{profile.label} is downloaded but not loaded yet."
+            button_title = "Load Model"
+            button_enabled = True
+        else:
+            status = f"{profile.label} is not on this Mac yet."
+            button_title = f"Download {profile.label}"
+            button_enabled = True
+        _set_label_text(
+            self._status,
+            status,
+            accessibility_label=f"Speech model status: {status}",
+        )
+        _set_button_state(
+            self._download_button,
+            button_title,
+            enabled=button_enabled,
+            help_text=status,
+        )
+        self._syncing_picker = True
+        _sync_profile_picker(
+            self._picker,
+            readiness.model_profile,
+            enabled=not readiness.model_busy,
+        )
+        self._syncing_picker = False
+        _sync_progress_bar(self._progress, readiness.model_download_progress)
 
     def hotkeyChanged_(self, sender) -> None:
         item = sender.selectedItem()
@@ -858,6 +1048,16 @@ class SettingsWindow(NSObject):
         setter = getattr(self._coordinator, "set_record_key", None)
         if callable(setter):
             setter(key_id)
+
+    def modelProfileChanged_(self, sender) -> None:
+        if self._syncing_picker:
+            return
+        index = int(sender.selectedSegment())
+        if 0 <= index < len(PROFILE_ORDER):
+            self._coordinator.select_model_profile(PROFILE_ORDER[index])
+
+    def downloadPressed_(self, _sender) -> None:
+        self._coordinator.download_model()
 
 
 class StatusBarApp(rumps.App):
@@ -939,8 +1139,11 @@ class StatusBarApp(rumps.App):
     def _open_setup(self, _sender) -> None:
         self.show_setup()
 
-    def _open_settings(self, _sender) -> None:
+    def show_settings(self) -> None:
         self.settings_window.show()
+
+    def _open_settings(self, _sender) -> None:
+        self.show_settings()
 
     def _dismiss_error(self, _sender) -> None:
         self._coordinator.dismiss_error()

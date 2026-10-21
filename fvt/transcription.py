@@ -11,10 +11,17 @@ from pathlib import Path
 
 import numpy as np
 
-from .contracts import StatusCallback
+from .contracts import ProgressCallback, StatusCallback
+from .models import (
+    DEFAULT_PROFILE_ID,
+    download_profile,
+    model_name_for_profile,
+    profile_for,
+    profile_for_model_name,
+)
 from .storage import AppPaths
 
-DEFAULT_MODEL = "distil-large-v3"
+DEFAULT_MODEL = model_name_for_profile(DEFAULT_PROFILE_ID)
 
 
 class ModelUnavailable(RuntimeError):
@@ -46,6 +53,7 @@ class MLXTranscriber:
         batch_size: int = 12,
         model_factory: Callable[..., object] | None = None,
         transcribe_callable: Callable[..., dict] | None = None,
+        download_callable: Callable[..., None] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._paths = paths
@@ -53,11 +61,21 @@ class MLXTranscriber:
         self._batch_size = batch_size
         self._model_factory = model_factory
         self._transcribe_callable = transcribe_callable
+        self._download_callable = download_callable
         self._logger = logger or logging.getLogger("freevoicetranscribe.transcription")
         self._model = None
         self._factory_backed = False
         self._prepare_lock = threading.Lock()
         self._inference_lock = threading.Lock()
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @property
+    def model_profile_id(self) -> str:
+        profile = profile_for_model_name(self._model_name)
+        return profile.id if profile is not None else DEFAULT_PROFILE_ID
 
     @property
     def model_dir(self) -> Path:
@@ -76,8 +94,22 @@ class MLXTranscriber:
     def is_ready(self) -> bool:
         return self._model is not None
 
+    def set_model_name(self, model_name: str) -> None:
+        """Switch the active checkpoint. Unloads any previously loaded model."""
+        if model_name == self._model_name and self._model is not None:
+            return
+        with self._prepare_lock:
+            with self._inference_lock:
+                self._model_name = model_name
+                self._model = None
+                self._factory_backed = False
+
     def prepare(
-        self, *, allow_download: bool, on_status: StatusCallback | None = None
+        self,
+        *,
+        allow_download: bool,
+        on_status: StatusCallback | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> None:
         if self._model is not None:
             return
@@ -94,7 +126,11 @@ class MLXTranscriber:
                     else "Downloading speech model"
                 )
             try:
-                if not allow_download:
+                if allow_download and not self.model_present:
+                    self._download_selected_model(
+                        on_status=on_status, on_progress=on_progress
+                    )
+                if not allow_download or self._model_factory is None:
                     # Validation and the inference path both use explicit local
                     # paths. Do not construct a Hub-aware object in offline mode.
                     self._validate_local_model()
@@ -102,10 +138,6 @@ class MLXTranscriber:
                     self._factory_backed = False
                 else:
                     factory = self._model_factory
-                    if factory is None:
-                        from lightning_whisper_mlx import LightningWhisperMLX
-
-                        factory = LightningWhisperMLX
                     # AppPaths.configure_runtime_environment makes the library's
                     # hard-coded ./mlx_models location resolve to Application Support.
                     self._model = factory(
@@ -113,6 +145,8 @@ class MLXTranscriber:
                         batch_size=self._batch_size,
                     )
                     self._factory_backed = True
+            except ModelUnavailable:
+                raise
             except Exception as exc:
                 self._logger.warning(
                     "Speech model preparation failed: %s", type(exc).__name__
@@ -122,6 +156,30 @@ class MLXTranscriber:
                 ) from exc
             if on_status is not None:
                 on_status("Speech model ready")
+
+    def _download_selected_model(
+        self,
+        *,
+        on_status: StatusCallback | None,
+        on_progress: ProgressCallback | None,
+    ) -> None:
+        profile = profile_for_model_name(self._model_name) or profile_for(
+            DEFAULT_PROFILE_ID
+        )
+        if on_status is not None:
+            on_status(f"Downloading {profile.label} model")
+        if self._download_callable is not None:
+            self._download_callable(
+                profile,
+                model_root=self._paths.model_root,
+                on_progress=on_progress,
+            )
+            return
+        download_profile(
+            profile,
+            model_root=self._paths.model_root,
+            on_progress=on_progress,
+        )
 
     def _validate_local_model(self) -> None:
         if not self.model_present:

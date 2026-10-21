@@ -84,11 +84,55 @@ class FakeTranscriptStore:
         self.saved.append(text)
 
 
+class FakeSettingsStore:
+    def __init__(self, profile="accurate", payload=None):
+        if isinstance(profile, dict) and payload is None:
+            payload = profile
+            profile = payload.get("speech_model_profile", "accurate")
+        self.profile = profile
+        self.payload = payload or {
+            "shortcuts": {"record": "fn", "hands_free": "fn+space", "cancel": "esc"},
+            "speech_model_profile": profile,
+        }
+        self.payload.setdefault("speech_model_profile", profile)
+        self.saved = []
+
+    def speech_model_profile(self):
+        return self.profile
+
+    def save_speech_model_profile(self, profile_id):
+        self.profile = profile_id
+        self.payload["speech_model_profile"] = profile_id
+        self.saved.append(profile_id)
+
+    def load(self):
+        data = dict(self.payload)
+        data["speech_model_profile"] = self.profile
+        return data
+
+    def save(self, payload):
+        self.payload = dict(payload)
+        if "speech_model_profile" in payload:
+            self.profile = payload["speech_model_profile"]
+        self.saved.append(dict(payload))
+
+
 class FakeTranscriber:
-    def __init__(self, text="hello world", *, ready=True, present=True):
+    def __init__(
+        self,
+        text="hello world",
+        *,
+        ready=True,
+        present=True,
+        model_name="distil-large-v3",
+        present_by_name=None,
+    ):
         self.text = text
         self._ready = ready
         self._present = present
+        self._model_name = model_name
+        self.present_by_name = dict(present_by_name or {model_name: present})
+        self.prepared_names = []
         self.calls = 0
 
     @property
@@ -99,11 +143,25 @@ class FakeTranscriber:
     def model_present(self):
         return self._present
 
-    def prepare(self, *, allow_download, on_status=None):
+    @property
+    def model_name(self):
+        return self._model_name
+
+    def set_model_name(self, model_name):
+        self._model_name = model_name
+        self._ready = False
+        if model_name in self.present_by_name:
+            self._present = self.present_by_name[model_name]
+
+    def prepare(self, *, allow_download, on_status=None, on_progress=None):
         if on_status:
             on_status("Preparing speech model")
+        if on_progress:
+            on_progress(0.5)
         self._present = True
+        self.present_by_name[self._model_name] = True
         self._ready = True
+        self.prepared_names.append(self._model_name)
 
     def transcribe(self, _path):
         self.calls += 1
@@ -154,21 +212,6 @@ class FakeInserter:
 
     def copy(self, text):
         self.copied.append(text)
-
-
-class FakeSettingsStore:
-    def __init__(self, payload=None):
-        self.payload = payload or {
-            "shortcuts": {"record": "fn", "hands_free": "fn+space", "cancel": "esc"}
-        }
-        self.saved = []
-
-    def load(self):
-        return dict(self.payload)
-
-    def save(self, payload):
-        self.payload = dict(payload)
-        self.saved.append(dict(payload))
 
 
 class CoordinatorIntegrationTests(unittest.TestCase):
@@ -308,6 +351,64 @@ class CoordinatorSetupTests(unittest.TestCase):
             coordinator.download_model()
             wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
             self.assertTrue(transcriber.is_ready)
+            coordinator.shutdown()
+
+    def test_selecting_fast_without_files_does_not_auto_download(self):
+        with tempfile.TemporaryDirectory() as temp:
+            settings = FakeSettingsStore()
+            transcriber = FakeTranscriber(
+                ready=True,
+                present=True,
+                present_by_name={"distil-large-v3": True, "small": False},
+            )
+            coordinator = AppCoordinator(
+                audio=FakeAudio(temp),
+                transcriber=transcriber,
+                inserter=FakeInserter(),
+                hotkey=FakeHotkey(),
+                permissions=FakePermissions(),
+                transcript_store=FakeTranscriptStore(),
+                settings_store=settings,
+            )
+            coordinator.start()
+            wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
+            coordinator.select_model_profile("fast")
+            wait_for(lambda: coordinator.snapshot.state is AppState.SETUP_REQUIRED)
+            self.assertEqual(transcriber.model_name, "small")
+            self.assertFalse(transcriber.is_ready)
+            self.assertEqual(settings.saved, ["fast"])
+            self.assertEqual(coordinator.snapshot.readiness.model_profile, "fast")
+            self.assertEqual(transcriber.prepared_names, [])
+            coordinator.download_model()
+            wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
+            self.assertEqual(transcriber.prepared_names, ["small"])
+            coordinator.shutdown()
+
+    def test_switching_back_to_downloaded_accurate_prepares_offline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            transcriber = FakeTranscriber(
+                ready=False,
+                present=True,
+                present_by_name={"distil-large-v3": True, "small": True},
+                model_name="small",
+            )
+            settings = FakeSettingsStore("fast")
+            coordinator = AppCoordinator(
+                audio=FakeAudio(temp),
+                transcriber=transcriber,
+                inserter=FakeInserter(),
+                hotkey=FakeHotkey(),
+                permissions=FakePermissions(),
+                transcript_store=FakeTranscriptStore(),
+                settings_store=settings,
+            )
+            coordinator.start()
+            wait_for(lambda: transcriber.is_ready)
+            coordinator.select_model_profile("accurate")
+            wait_for(lambda: coordinator.snapshot.readiness.model_profile == "accurate")
+            wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
+            self.assertEqual(transcriber.model_name, "distil-large-v3")
+            self.assertIn("distil-large-v3", transcriber.prepared_names)
             coordinator.shutdown()
 
     def test_unhealthy_hotkey_never_reports_ready(self):
