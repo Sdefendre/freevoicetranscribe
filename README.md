@@ -12,7 +12,7 @@ FreeVoiceTranscribe is free, open-source software released under the [MIT licens
 
 ## What it does
 
-- Hold the push-to-talk hotkey to record; release it to transcribe and insert. The default is **fn**. Change it in **Settings…** from the menu bar to Right Option, Right Command, Right Control, or F13.
+- Hold the push-to-talk hotkey to record; release it to transcribe and insert. The default is **fn**. Change it in **Settings…** from the menu bar to Right Option, Right Command, Right Control, or F13. Right-side modifiers may not work on keyboards that do not distinguish left and right keys.
 - Double-tap the hotkey to lock recording; tap it again to finish.
 - Press **hotkey + Space** while recording to switch to hands-free mode; press the hotkey again to finish.
 - Press **Esc** while recording to cancel and delete that recording.

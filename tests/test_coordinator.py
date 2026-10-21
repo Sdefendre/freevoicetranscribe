@@ -280,6 +280,15 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
         self.assertEqual(self.inserter.inserted[0][0], "hello world")
 
+    def test_changing_hotkey_while_recording_finishes_the_take(self):
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.set_record_key("f13")
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.hotkey.record_key, "f13")
+        self.assertFalse(self.hotkey.active)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+
 
 class CoordinatorSetupTests(unittest.TestCase):
     def test_missing_model_is_prepared_only_after_explicit_download(self):

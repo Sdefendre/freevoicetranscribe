@@ -122,20 +122,33 @@ class HotkeyTests(unittest.TestCase):
             listener._callback(None, Quartz.kCGEventFlagsChanged, event, None)
         self.assertEqual(actions, ["press"])
 
-    def test_f13_keydown_is_suppressed_and_dispatches_press(self):
-        listener = FnListener(lambda: None, lambda: None, record_key="f13")
-        actions = []
-        listener._dispatch = actions.append
-
+    def _f13_keydown(self, listener, *, repeat):
         def field(_event, requested):
             if requested == Quartz.kCGKeyboardEventAutorepeat:
-                return 0
+                return 1 if repeat else 0
             return F13_KEYCODE
 
         event = object()
         with patch.object(Quartz, "CGEventGetIntegerValueField", side_effect=field):
             result = listener._callback(None, Quartz.kCGEventKeyDown, event, None)
+        return event, result
+
+    def test_f13_keydown_is_suppressed_and_dispatches_press(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="f13")
+        actions = []
+        listener._dispatch = actions.append
+        _event, result = self._f13_keydown(listener, repeat=False)
         self.assertIsNone(result)
+        self.assertEqual(actions, ["press"])
+
+    def test_f13_autorepeat_is_swallowed_without_extra_press(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="f13")
+        actions = []
+        listener._dispatch = actions.append
+        _event, first = self._f13_keydown(listener, repeat=False)
+        _event, repeated = self._f13_keydown(listener, repeat=True)
+        self.assertIsNone(first)
+        self.assertIsNone(repeated)
         self.assertEqual(actions, ["press"])
 
     def test_set_record_key_rejects_unknown_ids(self):

@@ -86,7 +86,10 @@ class FnListener:
         return self._record_key_id
 
     def set_record_key(self, key_id: str) -> None:
-        self._record_key_id = normalize_record_key(key_id)
+        key_id = normalize_record_key(key_id)
+        if key_id == self._record_key_id:
+            return
+        self._record_key_id = key_id
         self._key_down = False
 
     def set_recording_active(self, active: bool) -> None:
@@ -142,20 +145,28 @@ class FnListener:
         if event_type not in {Quartz.kCGEventKeyDown, Quartz.kCGEventKeyUp}:
             return event
 
-        is_repeat = 0
-        if event_type == Quartz.kCGEventKeyDown:
-            is_repeat = Quartz.CGEventGetIntegerValueField(
-                event, Quartz.kCGKeyboardEventAutorepeat
-            )
-        if is_repeat:
-            return event
         keycode = Quartz.CGEventGetIntegerValueField(
             event, Quartz.kCGKeyboardEventKeycode
         )
         if spec.keycode is not None and keycode == spec.keycode:
-            self._set_key_down(event_type == Quartz.kCGEventKeyDown)
+            # Swallow every event for the configured key, including auto-repeat,
+            # so it cannot type into the focused app.
+            is_repeat = False
+            if event_type == Quartz.kCGEventKeyDown:
+                is_repeat = bool(
+                    Quartz.CGEventGetIntegerValueField(
+                        event, Quartz.kCGKeyboardEventAutorepeat
+                    )
+                )
+            if not is_repeat:
+                self._set_key_down(event_type == Quartz.kCGEventKeyDown)
             return None
         if event_type != Quartz.kCGEventKeyDown:
+            return event
+        is_repeat = Quartz.CGEventGetIntegerValueField(
+            event, Quartz.kCGKeyboardEventAutorepeat
+        )
+        if is_repeat:
             return event
         if (
             self._recording_active

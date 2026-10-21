@@ -635,10 +635,9 @@ class AppCoordinator:
             return
         hold = time.monotonic() - self._press_started_at
         if self._tap_max_hold > 0 and hold <= self._tap_max_hold:
-            # Wait briefly so a second tap can lock hands-free recording.
+            # Wait from this release so a second tap can lock recording.
             self._awaiting_double_tap = True
-            delay = max(0.0, self._double_tap_window - hold)
-            self._schedule_double_tap_timeout(delay)
+            self._schedule_double_tap_timeout(self._double_tap_window)
             return
         self._awaiting_double_tap = False
         self._finish_recording()
@@ -671,6 +670,8 @@ class AppCoordinator:
 
     def _set_record_key(self, payload) -> None:
         key_id = normalize_record_key(payload)
+        if key_id == self._record_key:
+            return
         self._record_key = key_id
         setter = getattr(self.hotkey, "set_record_key", None)
         if callable(setter):
@@ -690,16 +691,13 @@ class AppCoordinator:
                 store.save(data)
             except Exception:
                 self._logger.warning("Shortcut settings save failed", exc_info=True)
+        if self._store.snapshot.state is AppState.RECORDING:
+            # The previous key's release will never arrive. Treat this as a
+            # finished take so recording cannot stay stuck.
+            self._finish_recording()
+            return
         if self._store.snapshot.state is AppState.IDLE:
             self._store.update(detail=self._ready_detail())
-            self._publish()
-        elif self._store.snapshot.state is AppState.RECORDING:
-            detail = (
-                self._hands_free_detail()
-                if self._hands_free
-                else self._recording_detail()
-            )
-            self._store.update(detail=detail)
             self._publish()
 
     def _finish_recording(self) -> None:
