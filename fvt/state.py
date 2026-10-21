@@ -15,6 +15,7 @@ class AppState(StrEnum):
     IDLE = "idle"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
+    FILE_TRANSCRIBING = "file_transcribing"
     INSERTING = "inserting"
     ERROR = "error"
     SHUTTING_DOWN = "shutting_down"
@@ -59,6 +60,9 @@ class AppSnapshot:
     has_last_transcript: bool = False
     error_action: str | None = None
     target_screen: ScreenFrame | None = None
+    file_name: str = ""
+    file_current: int = 0
+    file_total: int = 0
 
 
 class InvalidTransition(RuntimeError):
@@ -75,6 +79,7 @@ _ALLOWED_TRANSITIONS: dict[AppState, set[AppState]] = {
     AppState.SETUP_REQUIRED: {
         AppState.SETUP_REQUIRED,
         AppState.IDLE,
+        AppState.FILE_TRANSCRIBING,
         AppState.ERROR,
         AppState.SHUTTING_DOWN,
     },
@@ -82,6 +87,7 @@ _ALLOWED_TRANSITIONS: dict[AppState, set[AppState]] = {
         AppState.IDLE,
         AppState.SETUP_REQUIRED,
         AppState.RECORDING,
+        AppState.FILE_TRANSCRIBING,
         AppState.ERROR,
         AppState.SHUTTING_DOWN,
     },
@@ -99,6 +105,13 @@ _ALLOWED_TRANSITIONS: dict[AppState, set[AppState]] = {
         AppState.ERROR,
         AppState.SHUTTING_DOWN,
     },
+    AppState.FILE_TRANSCRIBING: {
+        AppState.FILE_TRANSCRIBING,
+        AppState.IDLE,
+        AppState.SETUP_REQUIRED,
+        AppState.ERROR,
+        AppState.SHUTTING_DOWN,
+    },
     AppState.INSERTING: {
         AppState.INSERTING,
         AppState.IDLE,
@@ -110,6 +123,7 @@ _ALLOWED_TRANSITIONS: dict[AppState, set[AppState]] = {
         AppState.SETUP_REQUIRED,
         AppState.IDLE,
         AppState.RECORDING,
+        AppState.FILE_TRANSCRIBING,
         AppState.SHUTTING_DOWN,
     },
     AppState.SHUTTING_DOWN: {AppState.SHUTTING_DOWN},

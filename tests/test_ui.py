@@ -11,15 +11,51 @@ from fvt.storage import RECORD_KEY_IDS, RECORD_KEY_MENU_LABELS
 from fvt.ui import (
     HUD_HEIGHT,
     HUD_WIDTH,
+    FileTranscribeWindow,
     RecordingHUD,
     SettingsWindow,
     SetupWindow,
     _button,
     _hud_frame_for_screen,
     _hud_palette,
+    _paths_from_dragging,
     _set_button_state,
 )
 from generate_icon import generate_icon
+
+
+class FakeDragging:
+    def __init__(self, filenames):
+        self._filenames = filenames
+
+    def draggingPasteboard(self):
+        return self
+
+    def readObjectsForClasses_options_(self, *_args):
+        return []
+
+    def propertyListForType_(self, _type):
+        return self._filenames
+
+
+class FakeFileCoordinator:
+    def __init__(self):
+        self.paths = []
+        self.file_result = ""
+        self.cancelled = False
+        self.copied = []
+
+    def transcribe_audio_file(self, path):
+        self.paths.append(Path(path))
+
+    def cancel_file_transcription(self):
+        self.cancelled = True
+
+    def copy_transcript(self, text):
+        self.copied.append(text)
+
+    def copy_last_transcript(self):
+        self.copied.append("last")
 
 
 class FakeCoordinator:
@@ -227,6 +263,64 @@ class NativeUITests(unittest.TestCase):
         self.assertEqual(accessible["background"].alphaComponent(), 1.0)
         self.assertGreater(accessible["border_width"], standard["border_width"])
         self.assertIs(accessible["detail"], accessible["title"])
+
+    def test_file_window_shows_progress_then_copyable_result(self):
+        coordinator = FakeFileCoordinator()
+        window = FileTranscribeWindow.alloc().initWithCoordinator_(coordinator)
+        ready = Readiness(
+            microphone=PermissionState.GRANTED,
+            accessibility=PermissionState.GRANTED,
+            model_present=True,
+            model_ready=True,
+        )
+        window.update(
+            AppSnapshot(
+                state=AppState.IDLE,
+                title="Ready",
+                detail="Hold fn and speak. Release to insert.",
+                readiness=ready,
+            )
+        )
+        self.assertTrue(window._choose_button.isEnabled())
+        self.assertEqual(str(window._close_button.title()), "Close")
+
+        window.update(
+            AppSnapshot(
+                state=AppState.FILE_TRANSCRIBING,
+                title="Transcribing file",
+                detail="Part 2 of 4 — meeting.wav stays on this Mac.",
+                readiness=ready,
+                file_name="meeting.wav",
+                file_current=2,
+                file_total=4,
+            )
+        )
+        self.assertFalse(window._choose_button.isEnabled())
+        self.assertEqual(str(window._close_button.title()), "Cancel")
+        self.assertAlmostEqual(window._progress.doubleValue(), 2.0)
+        window.closePressed_(None)
+        self.assertTrue(coordinator.cancelled)
+
+        coordinator.file_result = "hello from the file"
+        window.update(
+            AppSnapshot(
+                state=AppState.IDLE,
+                title="File transcribed",
+                detail="Hold fn and speak. Release to insert.",
+                readiness=ready,
+                has_last_transcript=True,
+            )
+        )
+        self.assertTrue(window._copy_button.isEnabled())
+        self.assertTrue(window._save_button.isEnabled())
+        self.assertEqual(window._result_text, "hello from the file")
+        window.copyPressed_(None)
+        self.assertEqual(coordinator.copied, ["hello from the file"])
+        window._window.orderOut_(None)
+
+    def test_file_drop_helper_keeps_supported_audio_paths(self):
+        paths = _paths_from_dragging(FakeDragging(["/tmp/talk.m4a", "/tmp/notes.txt"]))
+        self.assertEqual(paths, [Path("/tmp/talk.m4a"), Path("/tmp/notes.txt")])
 
     def test_generated_icon_is_monochrome_and_not_microphone_shaped(self):
         with tempfile.TemporaryDirectory() as temp:

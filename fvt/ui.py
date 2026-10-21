@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from pathlib import Path
 
 import AppKit
 import numpy as np
@@ -12,6 +13,12 @@ import rumps
 from Foundation import NSAttributedString, NSObject, NSTimer
 
 from .contracts import ScreenFrame
+from .file_audio import (
+    AUDIO_FILE_SUFFIXES,
+    is_supported_audio_path,
+    suggested_transcript_name,
+    write_transcript_text,
+)
 from .models import PROFILE_ORDER, profile_for
 from .state import AppSnapshot, AppState, PermissionState
 from .storage import RECORD_KEY_IDS, RECORD_KEY_MENU_LABELS, normalize_record_key
@@ -1060,6 +1067,394 @@ class SettingsWindow(NSObject):
         self._coordinator.download_model()
 
 
+class FileDropView(AppKit.NSView):
+    def initWithCallback_(self, callback: Callable[[Path], None]):
+        self = objc.super(FileDropView, self).initWithFrame_(
+            AppKit.NSMakeRect(0, 0, 504, 88)
+        )
+        if self is None:
+            return None
+        self._callback = callback
+        self.highlighted = False
+        self.enabled = True
+        self.registerForDraggedTypes_(
+            [AppKit.NSPasteboardTypeFileURL, AppKit.NSFilenamesPboardType]
+        )
+        self.setAccessibilityElement_(True)
+        self.setAccessibilityRole_(AppKit.NSAccessibilityGroupRole)
+        self.setAccessibilityLabel_(
+            "Drop a wav, mp3, m4a, or similar audio file to transcribe it on this Mac"
+        )
+        return self
+
+    def draggingEntered_(self, sender):
+        if not self.enabled or self._supported_path(sender) is None:
+            return AppKit.NSDragOperationNone
+        self.highlighted = True
+        self.setNeedsDisplay_(True)
+        return AppKit.NSDragOperationCopy
+
+    def draggingExited_(self, _sender) -> None:
+        self.highlighted = False
+        self.setNeedsDisplay_(True)
+
+    def prepareForDragOperation_(self, sender) -> bool:
+        return self.enabled and self._supported_path(sender) is not None
+
+    def performDragOperation_(self, sender) -> bool:
+        self.highlighted = False
+        self.setNeedsDisplay_(True)
+        path = self._supported_path(sender)
+        if path is None:
+            return False
+        self._callback(path)
+        return True
+
+    def drawRect_(self, _rect) -> None:
+        dark = _is_dark_appearance(self)
+        fill = AppKit.NSColor.colorWithCalibratedWhite_alpha_(
+            0.18 if dark else 0.94, 1.0 if self.highlighted else 0.92
+        )
+        stroke = AppKit.NSColor.colorWithCalibratedWhite_alpha_(
+            0.82 if self.highlighted else 0.55 if dark else 0.42,
+            1.0,
+        )
+        fill.setFill()
+        path = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            AppKit.NSInsetRect(self.bounds(), 1, 1), 10, 10
+        )
+        path.fill()
+        stroke.setStroke()
+        path.setLineWidth_(2.0 if self.highlighted else 1.5)
+        try:
+            path.setLineDash_count_phase_([6.0, 4.0], 2, 0)
+        except Exception:
+            pass
+        path.stroke()
+        label = (
+            "Drop a wav, mp3, or m4a file here"
+            if self.enabled
+            else "File transcription is busy"
+        )
+        color = AppKit.NSColor.colorWithCalibratedWhite_alpha_(
+            0.86 if dark else 0.28, 1.0
+        )
+        attrs = {
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(
+                13, AppKit.NSFontWeightMedium
+            ),
+            AppKit.NSForegroundColorAttributeName: color,
+        }
+        text = NSAttributedString.alloc().initWithString_attributes_(label, attrs)
+        size = text.size()
+        bounds = self.bounds()
+        text.drawAtPoint_(
+            AppKit.NSMakePoint(
+                (bounds.size.width - size.width) / 2,
+                (bounds.size.height - size.height) / 2,
+            )
+        )
+
+    @objc.python_method
+    def _supported_path(self, sender):
+        for path in _paths_from_dragging(sender):
+            if is_supported_audio_path(path):
+                return path
+        return None
+
+
+def _paths_from_dragging(sender) -> list[Path]:
+    pasteboard = sender.draggingPasteboard()
+    paths: list[Path] = []
+    try:
+        urls = pasteboard.readObjectsForClasses_options_([AppKit.NSURL], None) or []
+        for url in urls:
+            if url.isFileURL():
+                paths.append(Path(url.path()))
+    except Exception:
+        pass
+    if paths:
+        return paths
+    try:
+        names = pasteboard.propertyListForType_(AppKit.NSFilenamesPboardType) or []
+        return [Path(name) for name in names]
+    except Exception:
+        return []
+
+
+class FileTranscribeWindow(NSObject):
+    def initWithCoordinator_(self, coordinator):
+        self = objc.super(FileTranscribeWindow, self).init()
+        if self is None:
+            return None
+        self._coordinator = coordinator
+        self._window = None
+        self._drop = None
+        self._choose_button = None
+        self._status = None
+        self._progress = None
+        self._result_view = None
+        self._copy_button = None
+        self._save_button = None
+        self._close_button = None
+        self._source_path: Path | None = None
+        self._result_text = ""
+        self._snapshot = AppSnapshot()
+        return self
+
+    @objc.python_method
+    def _ensure_window(self) -> None:
+        if self._window is not None:
+            return
+        rect = AppKit.NSMakeRect(0, 0, 560, 520)
+        self._window = (
+            AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                rect,
+                AppKit.NSWindowStyleMaskTitled
+                | AppKit.NSWindowStyleMaskClosable
+                | AppKit.NSWindowStyleMaskMiniaturizable,
+                AppKit.NSBackingStoreBuffered,
+                False,
+            )
+        )
+        self._window.setTitle_("Transcribe Audio File")
+        self._window.setReleasedWhenClosed_(False)
+        self._window.center()
+        content = self._window.contentView()
+
+        title = _label(
+            AppKit.NSMakeRect(28, 476, 504, 26),
+            "Transcribe an audio file on this Mac",
+            size=17,
+            bold=True,
+        )
+        subtitle = _label(
+            AppKit.NSMakeRect(28, 436, 504, 36),
+            "Choose or drop a wav, mp3, m4a, or similar file. There is no five-minute limit. Long files are split into chunks.",
+            size=12,
+        )
+        subtitle.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+        content.addSubview_(title)
+        content.addSubview_(subtitle)
+
+        self._drop = FileDropView.alloc().initWithCallback_(self._start_path)
+        self._drop.setFrame_(AppKit.NSMakeRect(28, 336, 504, 88))
+        content.addSubview_(self._drop)
+
+        self._choose_button = _button(
+            AppKit.NSMakeRect(200, 296, 160, 32),
+            "Choose File…",
+            self,
+            b"choosePressed:",
+        )
+        content.addSubview_(self._choose_button)
+
+        self._status = _label(
+            AppKit.NSMakeRect(28, 260, 504, 32),
+            "Ready for a wav, mp3, m4a, or similar file.",
+            size=12,
+        )
+        self._status.setLineBreakMode_(AppKit.NSLineBreakByWordWrapping)
+        content.addSubview_(self._status)
+
+        self._progress = AppKit.NSProgressIndicator.alloc().initWithFrame_(
+            AppKit.NSMakeRect(28, 236, 504, 14)
+        )
+        self._progress.setStyle_(AppKit.NSProgressIndicatorStyleBar)
+        self._progress.setIndeterminate_(False)
+        self._progress.setMinValue_(0.0)
+        self._progress.setMaxValue_(1.0)
+        self._progress.setDoubleValue_(0.0)
+        self._progress.setHidden_(True)
+        content.addSubview_(self._progress)
+
+        result_label = _label(
+            AppKit.NSMakeRect(28, 208, 504, 20), "Transcript", bold=True
+        )
+        content.addSubview_(result_label)
+
+        scroll = AppKit.NSScrollView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(28, 56, 504, 148)
+        )
+        scroll.setHasVerticalScroller_(True)
+        scroll.setBorderType_(AppKit.NSBezelBorder)
+        self._result_view = AppKit.NSTextView.alloc().initWithFrame_(
+            scroll.contentView().bounds()
+        )
+        self._result_view.setEditable_(False)
+        self._result_view.setRichText_(False)
+        self._result_view.setFont_(AppKit.NSFont.systemFontOfSize_(13))
+        self._result_view.setString_("")
+        self._result_view.setAccessibilityLabel_("Transcript of the chosen audio file")
+        scroll.setDocumentView_(self._result_view)
+        content.addSubview_(scroll)
+
+        self._copy_button = _button(
+            AppKit.NSMakeRect(28, 16, 88, 32), "Copy", self, b"copyPressed:"
+        )
+        self._save_button = _button(
+            AppKit.NSMakeRect(124, 16, 128, 32),
+            "Save as Text…",
+            self,
+            b"savePressed:",
+        )
+        self._close_button = _button(
+            AppKit.NSMakeRect(404, 16, 128, 32), "Close", self, b"closePressed:"
+        )
+        content.addSubview_(self._copy_button)
+        content.addSubview_(self._save_button)
+        content.addSubview_(self._close_button)
+
+    @objc.python_method
+    def show(self) -> None:
+        self._ensure_window()
+        AppKit.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        self._window.makeKeyAndOrderFront_(None)
+
+    @objc.python_method
+    def update(self, snapshot: AppSnapshot) -> None:
+        self._ensure_window()
+        previous = self._snapshot
+        self._snapshot = snapshot
+        working = snapshot.state is AppState.FILE_TRANSCRIBING
+        model_ready = snapshot.readiness.model_ready
+        can_choose = model_ready and not working
+        self._drop.enabled = can_choose
+        self._drop.setNeedsDisplay_(True)
+        _set_button_state(
+            self._choose_button,
+            "Choose File…",
+            enabled=can_choose,
+            help_text=(
+                "Choose an audio file to transcribe locally."
+                if can_choose
+                else snapshot.detail
+            ),
+        )
+
+        if working:
+            if snapshot.file_total > 0:
+                status = snapshot.detail
+                self._progress.setHidden_(False)
+                self._progress.setIndeterminate_(False)
+                self._progress.setMaxValue_(float(snapshot.file_total))
+                self._progress.setDoubleValue_(float(snapshot.file_current))
+                self._progress.stopAnimation_(None)
+            else:
+                status = snapshot.detail or "Reading the audio file locally."
+                self._progress.setHidden_(False)
+                self._progress.setIndeterminate_(True)
+                self._progress.startAnimation_(None)
+            _set_button_state(
+                self._close_button,
+                "Cancel",
+                enabled=True,
+                help_text="Stop transcribing this file.",
+            )
+        else:
+            self._progress.stopAnimation_(None)
+            self._progress.setHidden_(True)
+            self._progress.setDoubleValue_(0.0)
+            result = str(getattr(self._coordinator, "file_result", "") or "")
+            if result:
+                self._result_text = result
+                self._result_view.setString_(result)
+                status = "Done. Copy the transcript or save it as a text file."
+            elif previous.state is AppState.FILE_TRANSCRIBING:
+                status = f"{snapshot.title}. {snapshot.detail}".strip()
+            elif not model_ready:
+                status = "Download the local speech model in Setup first."
+            else:
+                status = "Ready for a wav, mp3, m4a, or similar file."
+            _set_button_state(
+                self._close_button,
+                "Close",
+                enabled=True,
+                help_text="Close this window.",
+            )
+
+        _set_label_text(self._status, status, accessibility_label=status)
+        has_result = bool(self._result_text)
+        _set_button_state(
+            self._copy_button,
+            "Copy",
+            enabled=has_result,
+            help_text="Copy the transcript to the clipboard.",
+        )
+        _set_button_state(
+            self._save_button,
+            "Save as Text…",
+            enabled=has_result,
+            help_text="Save the transcript as a .txt file.",
+        )
+
+    @objc.python_method
+    def _start_path(self, path: Path) -> None:
+        if not is_supported_audio_path(path):
+            _set_label_text(
+                self._status,
+                "Choose a wav, mp3, m4a, or similar audio file.",
+            )
+            return
+        self._source_path = path
+        self._result_text = ""
+        self._result_view.setString_("")
+        self._coordinator.transcribe_audio_file(path)
+
+    def choosePressed_(self, _sender) -> None:
+        panel = AppKit.NSOpenPanel.openPanel()
+        panel.setCanChooseFiles_(True)
+        panel.setCanChooseDirectories_(False)
+        panel.setAllowsMultipleSelection_(False)
+        panel.setTitle_("Transcribe Audio File")
+        panel.setPrompt_("Transcribe")
+        panel.setMessage_("Choose an audio file to transcribe on this Mac.")
+        panel.setAllowedFileTypes_(
+            sorted({suffix.lstrip(".") for suffix in AUDIO_FILE_SUFFIXES})
+        )
+        if panel.runModal() != AppKit.NSModalResponseOK:
+            return
+        url = panel.URL()
+        if url is None:
+            return
+        self._start_path(Path(url.path()))
+
+    def copyPressed_(self, _sender) -> None:
+        if not self._result_text:
+            return
+        copy_transcript = getattr(self._coordinator, "copy_transcript", None)
+        if callable(copy_transcript):
+            copy_transcript(self._result_text)
+            return
+        self._coordinator.copy_last_transcript()
+
+    def savePressed_(self, _sender) -> None:
+        if not self._result_text:
+            return
+        panel = AppKit.NSSavePanel.savePanel()
+        panel.setAllowedFileTypes_(["txt"])
+        panel.setTitle_("Save Transcript")
+        panel.setNameFieldStringValue_(
+            suggested_transcript_name(self._source_path or Path("transcript.txt"))
+        )
+        if panel.runModal() != AppKit.NSModalResponseOK:
+            return
+        url = panel.URL()
+        if url is None:
+            return
+        try:
+            write_transcript_text(Path(url.path()), self._result_text)
+            _set_label_text(self._status, "Saved as a text file.")
+        except OSError:
+            _set_label_text(self._status, "The transcript could not be saved.")
+
+    def closePressed_(self, _sender) -> None:
+        if self._snapshot.state is AppState.FILE_TRANSCRIBING:
+            self._coordinator.cancel_file_transcription()
+            return
+        self._window.orderOut_(None)
+
+
 class StatusBarApp(rumps.App):
     def __init__(self, coordinator):
         super().__init__(
@@ -1080,6 +1475,9 @@ class StatusBarApp(rumps.App):
         self._insert_item = rumps.MenuItem(
             "Insert Last Transcript", callback=self._insert_last
         )
+        self._file_item = rumps.MenuItem(
+            "Transcribe audio file…", callback=self._open_file_transcribe
+        )
         self._setup_item = rumps.MenuItem("Open Setup…", callback=self._open_setup)
         self._settings_item = rumps.MenuItem("Settings…", callback=self._open_settings)
         self._dismiss_item = rumps.MenuItem(
@@ -1092,6 +1490,7 @@ class StatusBarApp(rumps.App):
             None,
             self._copy_item,
             self._insert_item,
+            self._file_item,
             None,
             self._setup_item,
             self._settings_item,
@@ -1103,6 +1502,9 @@ class StatusBarApp(rumps.App):
         self.hud = RecordingHUD.alloc().initWithCallbacks_(callbacks)
         self.setup_window = SetupWindow.alloc().initWithCoordinator_(coordinator)
         self.settings_window = SettingsWindow.alloc().initWithCoordinator_(coordinator)
+        self.file_window = FileTranscribeWindow.alloc().initWithCoordinator_(
+            coordinator
+        )
         self._did_auto_show_setup = False
         self._refresh_timer = rumps.Timer(self._refresh_setup, 1.0)
 
@@ -1117,8 +1519,18 @@ class StatusBarApp(rumps.App):
             self._insert_last if snapshot.has_last_transcript else None
         )
         self._dismiss_item.hidden = snapshot.state is not AppState.ERROR
+        busy = snapshot.state in {
+            AppState.RECORDING,
+            AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
+            AppState.INSERTING,
+            AppState.SHUTTING_DOWN,
+            AppState.BOOTING,
+        }
+        self._file_item.set_callback(None if busy else self._open_file_transcribe)
         self.setup_window.update(snapshot)
         self.settings_window.update(snapshot)
+        self.file_window.update(snapshot)
         self.hud.update(snapshot)
         if snapshot.state is AppState.SETUP_REQUIRED and not self._did_auto_show_setup:
             self._did_auto_show_setup = True
@@ -1144,6 +1556,9 @@ class StatusBarApp(rumps.App):
 
     def _open_settings(self, _sender) -> None:
         self.show_settings()
+
+    def _open_file_transcribe(self, _sender) -> None:
+        self.file_window.show()
 
     def _dismiss_error(self, _sender) -> None:
         self._coordinator.dismiss_error()

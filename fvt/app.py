@@ -62,6 +62,7 @@ def create_application(paths: AppPaths | None = None):
         permissions=MacPermissionService(logger=logger.getChild("permissions")),
         logger=logger.getChild("coordinator"),
         settings_store=settings,
+        temp_dir=paths.temp,
         transcript_store=LastTranscriptStore.default(),
     )
     coordinator_ref["coordinator"] = coordinator

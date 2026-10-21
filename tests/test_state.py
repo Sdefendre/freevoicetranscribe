@@ -14,6 +14,14 @@ class StateStoreTests(unittest.TestCase):
         self.assertEqual(snapshot.state, AppState.IDLE)
         self.assertEqual(snapshot.title, "Ready")
 
+    def test_file_transcription_transitions_are_explicit(self):
+        store = StateStore()
+        store.transition(AppState.IDLE, title="Ready")
+        store.transition(AppState.FILE_TRANSCRIBING, title="Transcribing file")
+        snapshot = store.transition(AppState.IDLE, title="File transcribed")
+        self.assertEqual(snapshot.state, AppState.IDLE)
+        self.assertEqual(snapshot.title, "File transcribed")
+
     def test_illegal_transition_is_rejected(self):
         store = StateStore()
         with self.assertRaises(InvalidTransition):

@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 import numpy as np
 
@@ -21,6 +22,14 @@ from .contracts import (
     TargetApp,
     TranscriptionService,
 )
+from .file_audio import (
+    AudioFileCancelled,
+    AudioFileError,
+    chunk_samples,
+    join_transcripts,
+    load_mono_16k,
+    write_canonical_wav,
+)
 from .models import (
     model_name_for_profile,
     normalize_profile,
@@ -28,7 +37,12 @@ from .models import (
     profile_for_model_name,
 )
 from .state import AppSnapshot, AppState, PermissionState, Readiness, StateStore
-from .storage import LastTranscriptStore, normalize_record_key, record_key_label
+from .storage import (
+    AppPaths,
+    LastTranscriptStore,
+    normalize_record_key,
+    record_key_label,
+)
 
 
 class EventType(StrEnum):
@@ -47,6 +61,10 @@ class EventType(StrEnum):
     CANCEL = "cancel"
     AUDIO_LIMIT = "audio_limit"
     TRANSCRIPTION_RESULT = "transcription_result"
+    TRANSCRIBE_FILE = "transcribe_file"
+    FILE_TRANSCRIPTION_PROGRESS = "file_transcription_progress"
+    FILE_TRANSCRIPTION_RESULT = "file_transcription_result"
+    CANCEL_FILE = "cancel_file"
     COPY_LAST = "copy_last"
     INSERT_LAST = "insert_last"
     DISMISS_ERROR = "dismiss_error"
@@ -133,6 +151,7 @@ class AppCoordinator:
         permissions: PermissionService,
         transcript_store=None,
         settings_store=None,
+        temp_dir: Path | None = None,
         logger: logging.Logger | None = None,
         min_audio_seconds: float = 0.25,
         shutdown_timeout: float = 2.0,
@@ -154,6 +173,9 @@ class AppCoordinator:
         self._press_started_at = 0.0
         self._awaiting_double_tap = False
         self._double_tap_timer: threading.Timer | None = None
+        self._temp_dir = (
+            Path(temp_dir) if temp_dir is not None else AppPaths.default().temp
+        )
 
         self._store = StateStore()
         self._events: queue.Queue[Event | None] = queue.Queue()
@@ -188,6 +210,8 @@ class AppCoordinator:
                     "Shortcut settings load failed: %s", type(exc).__name__
                 )
                 self._record_key = "fn"
+        self._file_cancel = threading.Event()
+        self._file_result = ""
 
     @property
     def snapshot(self) -> AppSnapshot:
@@ -197,11 +221,20 @@ class AppCoordinator:
     def record_key(self) -> str:
         return self._record_key
 
+    @property
+    def last_transcript(self) -> str:
+        return self._last_transcript
+
+    @property
+    def file_result(self) -> str:
+        return self._file_result
+
     def set_observers(
         self,
         *,
         on_snapshot: SnapshotObserver | None = None,
         on_audio_level: AudioObserver | None = None,
+        on_feedback=None,
     ) -> None:
         self._snapshot_observer = on_snapshot
         self._audio_observer = on_audio_level
@@ -272,6 +305,17 @@ class AppCoordinator:
     def set_record_key(self, key_id: str) -> None:
         self.submit(EventType.SET_RECORD_KEY, key_id)
 
+    def transcribe_audio_file(self, path: Path | str) -> None:
+        self.submit(EventType.TRANSCRIBE_FILE, Path(path))
+
+    def cancel_file_transcription(self) -> None:
+        with self._lifecycle_lock:
+            self._file_cancel.set()
+        self.submit(EventType.CANCEL_FILE)
+
+    def copy_transcript(self, text: str) -> None:
+        self.submit(EventType.COPY_LAST, text)
+
     def _run(self) -> None:
         while True:
             event = self._events.get()
@@ -308,6 +352,10 @@ class AppCoordinator:
             EventType.CANCEL: self._cancel,
             EventType.AUDIO_LIMIT: self._audio_limit,
             EventType.TRANSCRIPTION_RESULT: self._transcription_result,
+            EventType.TRANSCRIBE_FILE: self._transcribe_file,
+            EventType.FILE_TRANSCRIPTION_PROGRESS: self._file_transcription_progress,
+            EventType.FILE_TRANSCRIPTION_RESULT: self._file_transcription_result,
+            EventType.CANCEL_FILE: self._cancel_file,
             EventType.COPY_LAST: self._copy_last,
             EventType.INSERT_LAST: self._insert_last,
             EventType.DISMISS_ERROR: self._dismiss_error,
@@ -406,6 +454,7 @@ class AppCoordinator:
 
         active = state in {
             AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
             AppState.INSERTING,
             AppState.SHUTTING_DOWN,
         }
@@ -655,10 +704,16 @@ class AppCoordinator:
                 self._lock_recording()
             return
         self._awaiting_double_tap = False
-        if state in {AppState.TRANSCRIBING, AppState.INSERTING}:
+        if state in {
+            AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
+            AppState.INSERTING,
+        }:
             self._store.update(
                 title="Still transcribing",
-                detail="Your recording is being finished locally.",
+                detail="Your recording is being finished locally."
+                if state is not AppState.FILE_TRANSCRIBING
+                else "The audio file is still being transcribed locally.",
             )
             self._publish()
             return
@@ -964,8 +1019,193 @@ class AppCoordinator:
         if self._store.snapshot.state is AppState.RECORDING:
             self._finish_recording()
 
-    def _copy_last(self, _payload=None) -> None:
-        if not self._last_transcript:
+    def _transcribe_file(self, payload) -> None:
+        path = Path(payload)
+        state = self._store.snapshot.state
+        if state in {
+            AppState.RECORDING,
+            AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
+            AppState.INSERTING,
+            AppState.SHUTTING_DOWN,
+        }:
+            self._store.update(
+                detail="Finish the current work before transcribing a file."
+            )
+            self._publish()
+            return
+        if not self.transcriber.is_ready:
+            self._set_error(
+                "Speech model required",
+                "Open Setup to download the local model, then try the file again.",
+                action="setup",
+            )
+            return
+
+        with self._lifecycle_lock:
+            self._file_cancel.clear()
+        self._file_result = ""
+        if state is AppState.ERROR:
+            self._store.transition(AppState.IDLE)
+        self._store.transition(
+            AppState.FILE_TRANSCRIBING,
+            title="Transcribing file",
+            detail=f"Reading {path.name} locally.",
+            file_name=path.name,
+            file_current=0,
+            file_total=0,
+            error_action=None,
+        )
+        self._publish()
+        self._executor.submit(self._file_transcribe_worker, path)
+
+    def _file_transcribe_worker(self, path: Path) -> None:
+        try:
+            samples = load_mono_16k(
+                path,
+                temp_dir=self._temp_dir,
+                cancel_event=self._file_cancel,
+            )
+            if self._file_cancel.is_set():
+                self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+                return
+            chunks = chunk_samples(samples)
+            if not chunks:
+                self.submit(
+                    EventType.FILE_TRANSCRIPTION_RESULT,
+                    ("", AudioFileError("The audio file was empty."), False),
+                )
+                return
+            parts: list[str] = []
+            total = len(chunks)
+            for index, chunk in enumerate(chunks, start=1):
+                if self._file_cancel.is_set():
+                    self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+                    return
+                self.submit(
+                    EventType.FILE_TRANSCRIPTION_PROGRESS,
+                    (path.name, index, total),
+                )
+                parts.append(self._transcribe_file_chunk(chunk))
+            self.submit(
+                EventType.FILE_TRANSCRIPTION_RESULT,
+                (join_transcripts(parts), None, False),
+            )
+        except AudioFileCancelled:
+            self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+        except Exception as exc:
+            if self._file_cancel.is_set():
+                self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+                return
+            self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", exc, False))
+
+    def _transcribe_file_chunk(self, samples: np.ndarray) -> str:
+        transcribe_samples = getattr(self.transcriber, "transcribe_samples", None)
+        if callable(transcribe_samples):
+            return transcribe_samples(samples)
+        path = write_canonical_wav(samples, self._temp_dir)
+        try:
+            return self.transcriber.transcribe(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def _file_transcription_progress(self, payload) -> None:
+        if self._store.snapshot.state is not AppState.FILE_TRANSCRIBING:
+            return
+        name, current, total = payload
+        self._store.transition(
+            AppState.FILE_TRANSCRIBING,
+            title="Transcribing file",
+            detail=f"Part {current} of {total} — {name} stays on this Mac.",
+            file_name=str(name),
+            file_current=int(current),
+            file_total=int(total),
+        )
+        self._publish()
+
+    def _file_transcription_result(self, payload) -> None:
+        text, error, cancelled = payload
+        if self._store.snapshot.state is not AppState.FILE_TRANSCRIBING:
+            return
+        self._store.update(file_name="", file_current=0, file_total=0)
+        if cancelled:
+            self._file_result = ""
+            self._finish_file_job("File transcription cancelled")
+            return
+        if error is not None:
+            self._file_result = ""
+            self._logger.warning("File transcription failed: %s", type(error).__name__)
+            detail = (
+                str(error)
+                if isinstance(error, AudioFileError)
+                else "The original file was not changed. Try another file."
+            )
+            self._set_error(
+                "Couldn’t transcribe that file",
+                detail,
+                action="dismiss",
+            )
+            return
+        text = str(text).strip()
+        if not text:
+            self._file_result = ""
+            self._set_error(
+                "I didn’t hear speech in that file",
+                "The original file was not changed.",
+                action="dismiss",
+            )
+            return
+        self._file_result = text
+        self._last_transcript = text
+        try:
+            self._transcript_store.save(text)
+        except Exception as exc:
+            self._logger.warning("Last transcript save failed: %s", type(exc).__name__)
+        self._finish_file_job("File transcribed")
+
+    def _cancel_file(self, _payload=None) -> None:
+        with self._lifecycle_lock:
+            self._file_cancel.set()
+        if self._store.snapshot.state is AppState.FILE_TRANSCRIBING:
+            self._store.update(
+                title="Cancelling file transcription",
+                detail="Waiting for the current part to finish.",
+            )
+            self._publish()
+
+    def _finish_file_job(self, title: str) -> None:
+        if self._store.snapshot.state is not AppState.FILE_TRANSCRIBING:
+            return
+        readiness = self._readiness()
+        next_state = (
+            AppState.IDLE
+            if readiness.ready and self._hotkey_started
+            else AppState.SETUP_REQUIRED
+        )
+        self._store.transition(
+            next_state,
+            title=title,
+            detail=(
+                "Hold fn and speak. Release to insert."
+                if next_state is AppState.IDLE
+                else "The transcript is ready in the file window."
+            ),
+            readiness=readiness,
+            hands_free=False,
+            has_last_transcript=bool(self._last_transcript),
+            error_action=None if next_state is AppState.IDLE else "setup",
+            target_screen=None,
+            file_name="",
+            file_current=0,
+            file_total=0,
+        )
+        self._publish()
+        if next_state is AppState.SETUP_REQUIRED:
+            self._refresh_readiness()
+
+    def _copy_last(self, payload=None) -> None:
+        text = str(payload).strip() if payload else self._last_transcript
+        if not text:
             self._set_error(
                 "No transcript yet",
                 "Dictate something first, then it can be copied.",
@@ -973,7 +1213,7 @@ class AppCoordinator:
             )
             return
         try:
-            self.inserter.copy(self._last_transcript)
+            self.inserter.copy(text)
         except Exception as exc:
             self._logger.warning("Copy last transcript failed: %s", type(exc).__name__)
             self._set_error(
@@ -985,6 +1225,7 @@ class AppCoordinator:
         if self._store.snapshot.state in {
             AppState.RECORDING,
             AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
             AppState.INSERTING,
         }:
             self._store.update(
@@ -1001,6 +1242,7 @@ class AppCoordinator:
         if self._store.snapshot.state in {
             AppState.RECORDING,
             AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
             AppState.INSERTING,
         }:
             self._store.update(

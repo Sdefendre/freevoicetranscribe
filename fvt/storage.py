@@ -112,13 +112,14 @@ class AppPaths:
         """Remove prior-launch crash leftovers before recording can begin."""
         removed = 0
         cutoff = time.time() - older_than_seconds
-        for path in self.temp.glob("recording-*.wav"):
-            try:
-                if older_than_seconds <= 0 or path.stat().st_mtime < cutoff:
-                    path.unlink()
-                    removed += 1
-            except OSError:
-                continue
+        for pattern in ("recording-*.wav", "convert-*.wav", "chunk-*.wav"):
+            for path in self.temp.glob(pattern):
+                try:
+                    if older_than_seconds <= 0 or path.stat().st_mtime < cutoff:
+                        path.unlink()
+                        removed += 1
+                except OSError:
+                    continue
         return removed
 
 

@@ -2,10 +2,13 @@ import tempfile
 import threading
 import time
 import unittest
+import wave
 from pathlib import Path
+from unittest.mock import patch
 
 from fvt.contracts import CapturedAudio, InsertResult, TargetApp
 from fvt.coordinator import AppCoordinator
+from fvt.file_audio import SAMPLE_RATE, AudioFileCancelled
 from fvt.state import AppState, PermissionState
 
 
@@ -126,14 +129,19 @@ class FakeTranscriber:
         present=True,
         model_name="distil-large-v3",
         present_by_name=None,
+        error=None,
+        texts=None,
     ):
         self.text = text
+        self.texts = list(texts) if texts is not None else None
         self._ready = ready
         self._present = present
         self._model_name = model_name
         self.present_by_name = dict(present_by_name or {model_name: present})
         self.prepared_names = []
         self.calls = 0
+        self.sample_lengths = []
+        self.error = error
 
     @property
     def is_ready(self):
@@ -165,6 +173,18 @@ class FakeTranscriber:
 
     def transcribe(self, _path):
         self.calls += 1
+        return self._next_text()
+
+    def transcribe_samples(self, samples):
+        self.calls += 1
+        self.sample_lengths.append(len(samples))
+        if self.error:
+            raise RuntimeError(self.error)
+        return self._next_text()
+
+    def _next_text(self):
+        if self.texts:
+            return self.texts[min(self.calls - 1, len(self.texts) - 1)]
         return self.text
 
 
@@ -231,6 +251,7 @@ class CoordinatorIntegrationTests(unittest.TestCase):
             permissions=self.permissions,
             transcript_store=self.transcript_store,
             tap_max_hold=0,
+            temp_dir=Path(self.temp.name),
         )
         self.coordinator.start()
         wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
@@ -332,6 +353,114 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         self.assertFalse(self.hotkey.active)
         self.assertEqual(self.inserter.inserted[0][0], "hello world")
 
+    def _write_wav(self, name: str, seconds: float) -> Path:
+        path = Path(self.temp.name) / name
+        with wave.open(str(path), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(SAMPLE_RATE)
+            output.writeframes(b"\x00\x00" * int(seconds * SAMPLE_RATE))
+        return path
+
+    def test_file_transcription_chunks_saves_and_does_not_insert(self):
+        path = self._write_wav("meeting.wav", 75)
+        self.coordinator.transcribe_audio_file(path)
+        wait_for(lambda: self.coordinator.file_result == "hello world")
+        self.assertEqual(self.coordinator.snapshot.state, AppState.IDLE)
+        self.assertEqual(self.coordinator.snapshot.title, "File transcribed")
+        self.assertEqual(self.transcriber.calls, 3)
+        self.assertEqual(self.inserter.inserted, [])
+        self.assertTrue(self.coordinator.snapshot.has_last_transcript)
+        self.assertEqual(self.transcript_store.saved, ["hello world"])
+
+    def test_file_transcription_trims_overlapping_chunk_text(self):
+        path = self._write_wav("meeting.wav", 75)
+        self.transcriber.texts = [
+            "and then we go",
+            "we go to the store",
+            "to the store later",
+        ]
+        self.coordinator.transcribe_audio_file(path)
+        wait_for(
+            lambda: self.coordinator.file_result == "and then we go to the store later"
+        )
+        self.assertEqual(self.transcriber.calls, 3)
+        self.assertEqual(self.inserter.inserted, [])
+        self.assertEqual(
+            self.transcript_store.saved, ["and then we go to the store later"]
+        )
+
+    def test_file_transcription_is_blocked_while_recording(self):
+        path = self._write_wav("later.wav", 1)
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.transcribe_audio_file(path)
+        time.sleep(0.05)
+        self.assertEqual(self.coordinator.snapshot.state, AppState.RECORDING)
+        self.assertEqual(self.transcriber.calls, 0)
+
+    def test_file_transcription_can_be_cancelled_between_chunks(self):
+        path = self._write_wav("long.wav", 75)
+        started = threading.Event()
+        release = threading.Event()
+
+        class SlowTranscriber(FakeTranscriber):
+            def transcribe_samples(self, samples):
+                self.calls += 1
+                self.sample_lengths.append(len(samples))
+                started.set()
+                release.wait(1.0)
+                return self.text
+
+        self.transcriber = SlowTranscriber()
+        self.coordinator.transcriber = self.transcriber
+        self.coordinator.transcribe_audio_file(path)
+        self.assertTrue(started.wait(1.0))
+        self.coordinator.cancel_file_transcription()
+        release.set()
+        wait_for(
+            lambda: self.coordinator.snapshot.title == "File transcription cancelled"
+        )
+        self.assertEqual(self.coordinator.file_result, "")
+        self.assertLess(self.transcriber.calls, 3)
+
+    def test_file_transcription_can_be_cancelled_during_load(self):
+        path = Path(self.temp.name) / "talk.m4a"
+        path.write_bytes(b"not a wav")
+        started = threading.Event()
+
+        def blocking_load(*_args, **kwargs):
+            started.set()
+            cancel = kwargs.get("cancel_event")
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                if cancel is not None and cancel.is_set():
+                    raise AudioFileCancelled("File transcription was cancelled.")
+                time.sleep(0.01)
+            raise AssertionError("load was not cancelled")
+
+        with patch("fvt.coordinator.load_mono_16k", side_effect=blocking_load):
+            self.coordinator.transcribe_audio_file(path)
+            self.assertTrue(started.wait(1.0))
+            self.coordinator.cancel_file_transcription()
+            wait_for(
+                lambda: (
+                    self.coordinator.snapshot.title == "File transcription cancelled"
+                )
+            )
+        self.assertEqual(self.coordinator.file_result, "")
+        self.assertEqual(self.transcriber.calls, 0)
+
+    def test_file_transcription_works_when_only_the_model_is_ready(self):
+        path = self._write_wav("clip.wav", 1)
+        self.permissions.microphone = PermissionState.DENIED
+        self.coordinator.refresh_setup()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.SETUP_REQUIRED)
+        self.coordinator.transcribe_audio_file(path)
+        wait_for(lambda: self.coordinator.file_result == "hello world")
+        self.assertEqual(self.inserter.inserted, [])
+        self.assertTrue(self.coordinator.snapshot.has_last_transcript)
+
 
 class CoordinatorSetupTests(unittest.TestCase):
     def test_missing_model_is_prepared_only_after_explicit_download(self):
@@ -344,6 +473,7 @@ class CoordinatorSetupTests(unittest.TestCase):
                 hotkey=FakeHotkey(),
                 permissions=FakePermissions(),
                 transcript_store=FakeTranscriptStore(),
+                temp_dir=Path(temp),
             )
             coordinator.start()
             wait_for(lambda: coordinator.snapshot.state is AppState.SETUP_REQUIRED)
@@ -351,6 +481,64 @@ class CoordinatorSetupTests(unittest.TestCase):
             coordinator.download_model()
             wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
             self.assertTrue(transcriber.is_ready)
+            coordinator.shutdown()
+
+    def test_file_transcription_requires_a_ready_model(self):
+        with tempfile.TemporaryDirectory() as temp:
+            transcriber = FakeTranscriber(ready=False, present=False)
+            coordinator = AppCoordinator(
+                audio=FakeAudio(temp),
+                transcriber=transcriber,
+                inserter=FakeInserter(),
+                hotkey=FakeHotkey(),
+                permissions=FakePermissions(),
+                transcript_store=FakeTranscriptStore(),
+                temp_dir=Path(temp),
+            )
+            coordinator.start()
+            wait_for(lambda: coordinator.snapshot.state is AppState.SETUP_REQUIRED)
+            path = Path(temp) / "clip.wav"
+            with wave.open(str(path), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(SAMPLE_RATE)
+                output.writeframes(b"\x00\x00" * SAMPLE_RATE)
+            coordinator.transcribe_audio_file(path)
+            wait_for(lambda: coordinator.snapshot.title == "Speech model required")
+            self.assertEqual(transcriber.calls, 0)
+            coordinator.shutdown()
+
+    def test_file_transcription_uses_the_selected_model(self):
+        with tempfile.TemporaryDirectory() as temp:
+            settings = FakeSettingsStore()
+            transcriber = FakeTranscriber(
+                present_by_name={"distil-large-v3": True, "small": True},
+            )
+            coordinator = AppCoordinator(
+                audio=FakeAudio(temp),
+                transcriber=transcriber,
+                inserter=FakeInserter(),
+                hotkey=FakeHotkey(),
+                permissions=FakePermissions(),
+                transcript_store=FakeTranscriptStore(),
+                settings_store=settings,
+                temp_dir=Path(temp),
+            )
+            coordinator.start()
+            wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
+            coordinator.select_model_profile("fast")
+            wait_for(lambda: transcriber.model_name == "small")
+            wait_for(lambda: coordinator.snapshot.state is AppState.IDLE)
+            path = Path(temp) / "clip.wav"
+            with wave.open(str(path), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(SAMPLE_RATE)
+                output.writeframes(b"\x00\x00" * SAMPLE_RATE)
+            coordinator.transcribe_audio_file(path)
+            wait_for(lambda: coordinator.file_result == "hello world")
+            self.assertEqual(transcriber.model_name, "small")
+            self.assertEqual(transcriber.calls, 1)
             coordinator.shutdown()
 
     def test_selecting_fast_without_files_does_not_auto_download(self):
@@ -421,6 +609,7 @@ class CoordinatorSetupTests(unittest.TestCase):
                 hotkey=hotkey,
                 permissions=FakePermissions(),
                 transcript_store=FakeTranscriptStore(),
+                temp_dir=Path(temp),
             )
             coordinator.start()
             wait_for(lambda: coordinator.snapshot.state is AppState.SETUP_REQUIRED)
@@ -440,6 +629,7 @@ class CoordinatorLifecycleTests(unittest.TestCase):
             "hotkey": FakeHotkey(),
             "permissions": FakePermissions(),
             "transcript_store": FakeTranscriptStore(),
+            "temp_dir": Path(temp),
             "shutdown_timeout": 0.15,
             "tap_max_hold": 0,
         }
