@@ -444,8 +444,9 @@ class CoordinatorIntegrationTests(unittest.TestCase):
             self.assertTrue(started.wait(1.0))
             self.coordinator.cancel_file_transcription()
             wait_for(
-                lambda: self.coordinator.snapshot.title
-                == "File transcription cancelled"
+                lambda: (
+                    self.coordinator.snapshot.title == "File transcription cancelled"
+                )
             )
         self.assertEqual(self.coordinator.file_result, "")
         self.assertEqual(self.transcriber.calls, 0)
