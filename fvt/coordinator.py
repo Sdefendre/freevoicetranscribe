@@ -37,7 +37,12 @@ from .models import (
     profile_for_model_name,
 )
 from .state import AppSnapshot, AppState, PermissionState, Readiness, StateStore
-from .storage import AppPaths, LastTranscriptStore, normalize_record_key, record_key_label
+from .storage import (
+    AppPaths,
+    LastTranscriptStore,
+    normalize_record_key,
+    record_key_label,
+)
 
 
 class EventType(StrEnum):

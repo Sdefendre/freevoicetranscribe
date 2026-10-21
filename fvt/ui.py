@@ -1455,7 +1455,6 @@ class FileTranscribeWindow(NSObject):
         self._window.orderOut_(None)
 
 
-
 class StatusBarApp(rumps.App):
     def __init__(self, coordinator):
         super().__init__(
