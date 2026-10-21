@@ -27,6 +27,7 @@ IMPORT_MODULES = (
     "fvt.app",
     "fvt.audio",
     "fvt.coordinator",
+    "fvt.file_audio",
     "fvt.insertion",
     "fvt.transcription",
     "fvt.ui",

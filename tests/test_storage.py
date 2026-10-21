@@ -17,11 +17,17 @@ class StorageTests(unittest.TestCase):
             paths = self._paths(Path(temp))
             paths.create()
             stale = paths.temp / "recording-crash.wav"
+            convert = paths.temp / "convert-interview.wav"
+            chunk = paths.temp / "chunk-abc.wav"
             stale.write_bytes(b"private audio")
+            convert.write_bytes(b"converted")
+            chunk.write_bytes(b"chunk")
             unrelated = paths.temp / "keep.txt"
             unrelated.write_text("keep")
-            self.assertEqual(paths.remove_stale_audio(), 1)
+            self.assertEqual(paths.remove_stale_audio(), 3)
             self.assertFalse(stale.exists())
+            self.assertFalse(convert.exists())
+            self.assertFalse(chunk.exists())
             self.assertTrue(unrelated.exists())
 
     def test_last_only_store_overwrites_and_reloads_without_history(self):

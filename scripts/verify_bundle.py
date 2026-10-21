@@ -20,6 +20,7 @@ APP_READY_SENTINEL = b"FVT_APP_READY"
 REQUIRED_PYTHON_MODULES = (
     "fvt.app",
     "fvt.coordinator",
+    "fvt.file_audio",
     "lightning_whisper_mlx.lightning",
     "mlx",
     "mlx._reprlib_fix",

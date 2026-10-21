@@ -3,6 +3,8 @@ import unittest
 import wave
 from pathlib import Path
 
+import numpy as np
+
 from fvt.models import profile_for
 from fvt.storage import AppPaths
 from fvt.transcription import MLXTranscriber, ModelUnavailable
@@ -64,6 +66,10 @@ class TranscriptionTests(unittest.TestCase):
             audio_path = root / "audio.wav"
             self._write_wav(audio_path)
             self.assertEqual(service.transcribe(audio_path), "local transcript")
+            self.assertEqual(
+                service.transcribe_samples(np.zeros(160, dtype=np.float32)),
+                "local transcript",
+            )
 
     def test_invalid_local_config_fails_without_calling_factory(self):
         with tempfile.TemporaryDirectory() as temp:

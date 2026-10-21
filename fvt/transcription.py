@@ -194,28 +194,38 @@ class MLXTranscriber:
             raise ModelUnavailable("The local speech model configuration is invalid")
 
     def transcribe(self, audio_path: Path) -> str:
-        model = self._model
-        if model is None:
+        if self._model is None:
             raise ModelUnavailable("The speech model is not ready")
+        return self._infer(self._read_pcm_wav(audio_path), audio_path=audio_path)
+
+    def transcribe_samples(self, samples: np.ndarray) -> str:
+        if self._model is None:
+            raise ModelUnavailable("The speech model is not ready")
+        if samples.size == 0:
+            raise TranscriptionError("The audio file was empty.")
+        return self._infer(np.asarray(samples, dtype=np.float32), audio_path=None)
+
+    def _infer(self, samples: np.ndarray, *, audio_path: Path | None) -> str:
+        model = self._model
         try:
             with self._inference_lock:
                 if self._transcribe_callable is not None:
                     result = self._transcribe_callable(
-                        self._read_pcm_wav(audio_path),
+                        samples,
                         path_or_hf_repo=str(self.model_dir),
                         batch_size=self._batch_size,
                     )
-                elif self._factory_backed:
+                elif self._factory_backed and audio_path is not None:
                     # Test/custom model factories own their transcription adapter.
                     result = model.transcribe(str(audio_path))
                 else:
                     # lightning-whisper-mlx normally shells out to ffmpeg for paths.
-                    # Our recorder already produces canonical 16 kHz mono PCM, so
+                    # Recordings and file chunks are already 16 kHz mono PCM, so
                     # pass normalized samples directly and keep the app self-contained.
                     from lightning_whisper_mlx.lightning import transcribe_audio
 
                     result = transcribe_audio(
-                        self._read_pcm_wav(audio_path),
+                        samples,
                         path_or_hf_repo=str(self.model_dir),
                         batch_size=self._batch_size,
                     )
@@ -223,6 +233,8 @@ class MLXTranscriber:
                 raise TypeError("Unexpected transcription response")
             return str(result.get("text", "")).strip()
         except ModelUnavailable:
+            raise
+        except TranscriptionError:
             raise
         except Exception as exc:
             self._logger.warning("Local transcription failed: %s", type(exc).__name__)

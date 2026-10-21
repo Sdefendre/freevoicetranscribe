@@ -17,8 +17,9 @@ FreeVoiceTranscribe is free, open-source software released under the [MIT licens
 - Press **hotkey + Space** while recording to switch to hands-free mode; press the hotkey again to finish.
 - Press **Esc** while recording to cancel and delete that recording.
 - Recover the latest transcript with **Copy Last Transcript** or **Insert Last Transcript** from the menu bar.
+- Choose **Transcribe audio file…** to pick or drop a wav, mp3, m4a, or similar file. There is no five-minute limit for files; long audio is transcribed in chunks with the selected Fast or Accurate model. Copy the result or save it as a `.txt` file.
 - Transcribe locally with a Fast or Accurate speech model through `lightning-whisper-mlx`. Accurate (`distil-large-v3`) is the default. Fast uses Whisper `small` for quicker on-device results.
-- Limit each recording to five minutes.
+- Limit each hold-to-talk recording to five minutes.
 
 FreeVoiceTranscribe has no account system, cloud transcription, transcript history, or always-on microphone. It is a menu-bar app after setup and does not remain in the Dock.
 
@@ -141,6 +142,7 @@ If the issue persists, use **Send Feedback** in the menu bar.
 - The microphone opens only while recording.
 - Inference runs locally after the one-time download for the model you selected. A second model is downloaded only if you switch and it is not already on disk.
 - Recordings are private 16 kHz mono temporary WAV files. They are deleted after transcription, error, or cancellation; crash leftovers are removed at the next launch.
+- **Transcribe audio file…** reads the file you chose on this Mac. Temporary converted copies are deleted after transcription. The original file is not changed or uploaded.
 - Exactly one transcript is persisted locally for recovery. A newer transcript replaces it; there is no history.
 - Automatic insertion temporarily stages text on the clipboard. The previous clipboard is restored only if no other app changed it, so newer clipboard contents are preserved.
 - The app captures the original process and exact focused editable Accessibility element. It verifies both again before insertion and fails closed rather than typing into another field.
@@ -261,6 +263,7 @@ Use `--skip-signature` only for isolated verifier fixtures; it is not a release 
 fvt/app.py             application composition and lifecycle
 fvt/state.py           legal states and immutable snapshots
 fvt/audio.py           bounded capture and device-aware WAV handling
+fvt/file_audio.py      local file decode, chunking, and transcript save
 fvt/models.py          Fast / Accurate local-model catalog and downloads
 fvt/transcription.py   local model readiness and PCM transcription
 fvt/hotkey.py          resilient hold-to-talk, hotkey+Space, and Esc event tap
