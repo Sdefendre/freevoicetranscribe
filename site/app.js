@@ -12,10 +12,10 @@
 
   const finalText = "a clear thought, placed right where you left the cursor.";
   const stateCopy = {
-    recording: ["Listening", "Release fn to insert. Press esc to cancel."],
+    recording: ["Listening", "Release your key to insert. Press esc to cancel."],
     transcribing: ["Transcribing", "Processing locally on this Mac."],
     inserting: ["Inserting text", "Returning to your app."],
-    complete: ["Ready", "Hold fn and speak. Release to insert."],
+    complete: ["Ready", "Hold your key and speak. Release to insert."],
   };
 
   let demoVisible = false;

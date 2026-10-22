@@ -8,13 +8,13 @@
     <meta name="color-scheme" content="light dark">
     <meta
       name="description"
-      content="FreeVoiceTranscribe is private, local hold-to-talk dictation for Apple Silicon Macs. Hold fn, speak, and release to insert."
+      content="FreeVoiceTranscribe is private, local hold-to-talk dictation for Apple Silicon Macs. Hold your key, speak, and release to insert — or transcribe a file on this Mac."
     >
     <meta property="og:type" content="website">
     <meta property="og:title" content="FreeVoiceTranscribe: Private dictation for Mac">
     <meta
       property="og:description"
-      content="Hold fn, speak, and release. Transcription runs locally on your Apple Silicon Mac."
+      content="Hold your key, speak, and release. Transcription runs locally on your Apple Silicon Mac."
     >
     <meta property="og:image" content="https://sdefendre.github.io/freevoicetranscribe/assets/app-icon.svg">
     <meta property="og:url" content="https://sdefendre.github.io/freevoicetranscribe/">
@@ -23,7 +23,7 @@
     <meta name="twitter:title" content="FreeVoiceTranscribe: Private dictation for Mac">
     <meta
       name="twitter:description"
-      content="Hold fn, speak, and release. Transcription runs locally on your Apple Silicon Mac."
+      content="Hold your key, speak, and release. Transcription runs locally on your Apple Silicon Mac."
     >
     <meta name="twitter:image" content="https://sdefendre.github.io/freevoicetranscribe/assets/app-icon.svg">
     <link rel="canonical" href="https://sdefendre.github.io/freevoicetranscribe/">
@@ -58,9 +58,9 @@
           <p class="eyebrow"><span aria-hidden="true"></span> Private dictation for Mac</p>
           <h1 id="hero-title">Your words,<br><em>right at the cursor.</em></h1>
           <p class="hero-lede">
-            Hold the <kbd>fn</kbd> key, speak, then release. FreeVoiceTranscribe turns
-            your voice into text locally, then returns it to the supported focused
-            editable field where you started.
+            Hold your push-to-talk key — <kbd>fn</kbd> by default — speak, then
+            release. FreeVoiceTranscribe turns your voice into text locally, then
+            returns it to the supported focused editable field where you started.
           </p>
           <div class="hero-actions" role="group" aria-label="Product availability">
             <a class="availability-button" href="https://github.com/Sdefendre/freevoicetranscribe">
@@ -150,7 +150,7 @@
 
       <section class="signal-strip" aria-label="Core product promise">
         <div class="signal-line" aria-hidden="true"></div>
-        <p>Hold one key. Speak naturally. Keep your work moving.</p>
+        <p>Hold your key. Speak naturally. Keep your work moving.</p>
       </section>
 
       <section class="how-section section-shell" id="how-it-works" aria-labelledby="how-title">
@@ -168,7 +168,10 @@
             <span class="step-number">01</span>
             <div class="rail-mark"><span class="keycap">fn</span></div>
             <h3>Hold</h3>
-            <p>Start with a supported editable field focused in the app you are using.</p>
+            <p>
+              Focus a supported editable field, then hold your push-to-talk key.
+              The default is <kbd>fn</kbd>.
+            </p>
           </li>
           <li>
             <span class="step-number">02</span>
@@ -182,7 +185,7 @@
             <span class="step-number">03</span>
             <div class="rail-mark rail-release" aria-hidden="true">↑</div>
             <h3>Release</h3>
-            <p>Your recording is transcribed by the local model on your Mac.</p>
+            <p>Your recording is transcribed by the local Fast or Accurate model on your Mac.</p>
           </li>
           <li>
             <span class="step-number">04</span>
@@ -196,8 +199,10 @@
         </ol>
 
         <p class="hands-free-note">
-          Need both hands? Press <kbd>fn</kbd> + <kbd>Space</kbd> while recording to
-          switch to hands-free mode. Press <kbd>fn</kbd> again when you are done.
+          Need both hands? Double-tap the hotkey to lock recording, or press the
+          hotkey + <kbd>Space</kbd> while holding. Tap the hotkey again when you
+          are done. Change the key in <strong>Settings…</strong> to <kbd>fn</kbd>,
+          Right Option, Right Command, Right Control, or F13.
         </p>
       </section>
 
@@ -216,8 +221,9 @@
               <div>
                 <h3>Transcription stays local</h3>
                 <p>
-                  After a one-time speech-model download, inference runs on your
-                  Apple Silicon Mac.
+                  After you download Fast or Accurate, inference runs on your
+                  Apple Silicon Mac. Switching models only downloads the one that
+                  is missing. The optional writing model is also local.
                 </p>
               </div>
             </article>
@@ -247,8 +253,52 @@
 
       <section class="details-section section-shell" id="details" aria-labelledby="details-title">
         <div class="details-heading">
-          <p class="eyebrow">Small by design</p>
-          <h2 id="details-title">The useful controls. Nothing to tend.</h2>
+          <p class="eyebrow">In the app</p>
+          <h2 id="details-title">Speak, drop a file, or rewrite.</h2>
+        </div>
+
+        <div class="capability-grid">
+          <article>
+            <span class="capability-index">01</span>
+            <h3>Your key, your lock</h3>
+            <p>
+              Hold to talk. Double-tap to lock recording, then tap again to finish.
+              Change the shortcut in <strong>Settings…</strong> to <kbd>fn</kbd>,
+              Right Option, Right Command, Right Control, or F13. Right-side
+              modifiers need a keyboard that distinguishes left and right keys.
+            </p>
+          </article>
+          <article>
+            <span class="capability-index">02</span>
+            <h3>Fast or Accurate</h3>
+            <p>
+              Pick <strong>Fast</strong> (Whisper small) for quicker results, or
+              <strong>Accurate</strong> (<code>distil-large-v3</code>) for the
+              original higher-quality model. Each downloads on demand from the
+              same <strong>Settings…</strong> window. Inference never leaves this Mac.
+            </p>
+          </article>
+          <article>
+            <span class="capability-index">03</span>
+            <h3>Transcribe a file</h3>
+            <p>
+              Choose <strong>Transcribe audio file…</strong> to pick or drop a
+              wav, mp3, or m4a. Files have no five-minute limit. Copy the result
+              or save a <code>.txt</code>. File transcription stays raw and does
+              not use Write or Command.
+            </p>
+          </article>
+          <article>
+            <span class="capability-index">04</span>
+            <h3>Write and Command</h3>
+            <p>
+              Optional on-device cleanup for dictation, off by default.
+              <strong>Write</strong> removes filler words, fixes punctuation, and
+              applies spoken self-corrections. <strong>Command</strong> rewrites
+              selected text from a spoken instruction. Set a tone per app. Uses a
+              local ~1&nbsp;GB model. Never cloud.
+            </p>
+          </article>
         </div>
 
         <div class="details-layout">
@@ -274,22 +324,25 @@
             <article>
               <span>03</span>
               <div>
-                <h3>A sensible recording boundary</h3>
-                <p>Each recording is capped at five minutes and can be cancelled sooner.</p>
+                <h3>A sensible live-recording boundary</h3>
+                <p>
+                  Hold-to-talk recordings stop at five minutes. File transcription
+                  has no time cap.
+                </p>
               </div>
             </article>
             <article>
               <span>04</span>
               <div>
-                <h3>A quiet menu-bar presence</h3>
+                <h3>One Settings window</h3>
                 <p>
-                  Setup is available when you need it. The app stays out of the Dock
-                  when you do not.
+                  <strong>Settings…</strong> holds the hotkey, Fast / Accurate,
+                  the optional writing-model download, and per-app tones. The app
+                  stays out of the Dock when you do not.
                 </p>
               </div>
             </article>
           </div>
-
         </div>
       </section>
 
@@ -332,7 +385,7 @@
                 </div>
                 <div>
                   <dt>First launch</dt>
-                  <dd>One-time model download</dd>
+                  <dd>Selected model download</dd>
                 </div>
                 <div>
                   <dt>Permissions</dt>
@@ -340,7 +393,7 @@
                 </div>
               </dl>
               <p class="requirements-note">
-                Accessibility permission enables the global <kbd>fn</kbd> shortcut
+                Accessibility permission enables the global shortcut you choose
                 and insertion into a supported focused editable field.
               </p>
             </div>
@@ -354,7 +407,8 @@
           <h2 id="install-title">Install from source.</h2>
           <p>
             You need an Apple Silicon Mac with macOS 14 or newer, Python 3.11 to 3.13,
-            and PortAudio. The first launch downloads the speech model once.
+            and PortAudio. The first launch downloads the speech model you select.
+            Accurate is the default; Fast is the quicker option.
           </p>
         </div>
         <div class="install-steps">
@@ -373,7 +427,7 @@ cd freevoicetranscribe</code></pre>
               <pre><code>./run.sh</code></pre>
             </li>
             <li>
-              <p>Follow the setup window: grant Microphone and Accessibility access, then download the local speech model.</p>
+              <p>Follow the setup window: grant Microphone and Accessibility access, then download the selected local speech model. Open Settings… later for the hotkey, Fast / Accurate, the optional writing model, and per-app tones.</p>
             </li>
           </ol>
           <p class="requirements-note">
@@ -393,8 +447,63 @@ cd freevoicetranscribe</code></pre>
             <summary>Does it need an internet connection?<span aria-hidden="true"></span></summary>
             <div class="answer">
               <p>
-                Only for the one-time speech-model download. Once the model is on
-                your Mac, transcription runs locally.
+                Only to download the speech model you select, or the optional
+                writing model if you use Write or Command. A second speech model
+                downloads only if you switch and it is not already on disk. Once
+                a model is on your Mac, work stays local.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>How do I change the shortcut?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                Open <strong>Settings…</strong> from the menu bar. The default is
+                <kbd>fn</kbd>. You can switch to Right Option, Right Command,
+                Right Control, or F13. Right-side modifiers may not work on
+                keyboards that do not distinguish left and right keys. Double-tap
+                the hotkey to lock recording; tap it again to finish.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>What is the difference between Fast and Accurate?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                Both run on this Mac through <code>lightning-whisper-mlx</code>.
+                <strong>Accurate</strong> (<code>distil-large-v3</code>) is the
+                default and the original higher-quality model. <strong>Fast</strong>
+                uses Whisper <code>small</code> for a smaller download and quicker
+                transcription. Each downloads on demand with a progress bar.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Can I transcribe an existing audio file?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                Yes. Choose <strong>Transcribe audio file…</strong> from the menu
+                bar, then pick or drop a wav, mp3, m4a, or similar file. There is
+                no five-minute limit for files. Copy the result or save it as a
+                <code>.txt</code>. The original file is not changed or uploaded.
+                File transcription stays raw: Write and Command do not run on it.
+                Live hold-to-talk recordings are still capped at five minutes.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>What are Write and Command?<span aria-hidden="true"></span></summary>
+            <div class="answer">
+              <p>
+                Both are optional, off by default, and stay on this Mac.
+                <strong>Dictate</strong> is the default and never uses a writing
+                model. <strong>Write</strong> cleans filler words, punctuation,
+                capitalization, and spoken self-corrections. <strong>Command</strong>
+                rewrites selected text from a spoken instruction. You can set a
+                tone per app. They use a local ~1&nbsp;GB model and never send
+                text to a server. Cleanup applies to dictation only. Download the
+                writing model from the same <strong>Settings…</strong> window that
+                holds the hotkey and Fast / Accurate picker.
               </p>
             </div>
           </details>
@@ -422,8 +531,8 @@ cd freevoicetranscribe</code></pre>
             <summary>Why does it need Accessibility permission?<span aria-hidden="true"></span></summary>
             <div class="answer">
               <p>
-                macOS requires Accessibility permission for the global <kbd>fn</kbd>
-                shortcut, focused-field verification, and insertion into the
+                macOS requires Accessibility permission for the global shortcut
+                you choose, focused-field verification, and insertion into the
                 supported editable field where you started.
               </p>
             </div>
@@ -435,6 +544,7 @@ cd freevoicetranscribe</code></pre>
                 Only the latest transcript persists locally for recovery until a
                 newer transcript replaces it. There is no transcript history.
                 Temporary recording audio is deleted after completion or cancellation.
+                File transcription reads the file on this Mac and does not upload it.
               </p>
             </div>
           </details>
