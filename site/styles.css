@@ -907,8 +907,7 @@ kbd {
 
 .process-rail h3,
 .detail-list h3,
-.privacy-points h3,
-.requirements-panel h3 {
+.privacy-points h3 {
   margin: 0;
   font-family: var(--font-editorial);
   font-size: 1.35rem;
@@ -1162,7 +1161,7 @@ pre code {
 }
 
 .availability-section .panel-label {
-  color: var(--ink-faint);
+  color: var(--ink-soft);
 }
 
 .release-state-title {
@@ -1205,7 +1204,7 @@ pre code {
 }
 
 .requirements-list dt {
-  color: var(--ink-faint);
+  color: var(--ink-soft);
   font-size: 0.6875rem;
 }
 
@@ -1216,14 +1215,6 @@ pre code {
   text-align: right;
 }
 
-.requirements-panel {
-  position: sticky;
-  top: 7rem;
-  padding: clamp(1.5rem, 4vw, 2.5rem);
-  color: var(--dark-text);
-  background: var(--dark);
-}
-
 .panel-label {
   margin: 0 0 1rem;
   color: var(--dark-muted);
@@ -1231,77 +1222,6 @@ pre code {
   font-weight: 720;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.requirements-panel h3 {
-  color: var(--dark-text);
-  font-size: 2rem;
-}
-
-.requirements-panel dl {
-  margin: 2rem 0 0;
-  border-top: 1px solid #4a4842;
-}
-
-.requirements-panel dl div {
-  display: grid;
-  grid-template-columns: 0.7fr 1fr;
-  padding-block: 0.85rem;
-  border-bottom: 1px solid #4a4842;
-  gap: 1rem;
-}
-
-.requirements-panel dt {
-  color: var(--dark-muted);
-  font-size: 0.6875rem;
-}
-
-.requirements-panel dd {
-  margin: 0;
-  font-size: 0.75rem;
-  font-weight: 650;
-  text-align: right;
-}
-
-.requirements-panel .requirements-note {
-  margin: 1.5rem 0 0;
-  color: var(--dark-muted);
-  font-size: 0.75rem;
-  line-height: 1.65;
-}
-
-.requirements-panel kbd {
-  border-color: #67645e;
-  color: var(--dark-text);
-  background: var(--dark-raised);
-}
-
-.launch-disclosure {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  margin-top: 2rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid #4a4842;
-  gap: 0.65rem;
-}
-
-.launch-disclosure .status-mark {
-  margin-top: 0.3rem;
-  border-color: #df7567;
-}
-
-.launch-disclosure p {
-  margin: 0;
-  color: var(--dark-muted);
-  font-size: 0.6875rem;
-  line-height: 1.55;
-}
-
-.launch-disclosure strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  color: var(--dark-text);
-  font-size: 0.75rem;
 }
 
 .faq-section {
@@ -1318,11 +1238,6 @@ pre code {
 
 .faq-heading h2 {
   max-width: 9ch;
-}
-
-.faq-heading h2 kbd {
-  font-size: 0.42em;
-  vertical-align: 0.24em;
 }
 
 .faq-list {
@@ -1692,7 +1607,6 @@ pre code {
     grid-template-columns: 1fr;
   }
 
-  .requirements-panel,
   .faq-heading {
     position: static;
   }
@@ -1803,15 +1717,6 @@ pre code {
 
   .process-rail p {
     margin-top: 0.4rem;
-  }
-
-  .requirements-panel dl div {
-    grid-template-columns: 1fr;
-    gap: 0.25rem;
-  }
-
-  .requirements-panel dd {
-    text-align: left;
   }
 
   .footer-inner {
@@ -1935,7 +1840,7 @@ pre code {
 
 @media (forced-colors: active) {
   .status-mark,
-  .hud-indicator,
+  .hud-state-mark,
   .rail-mark,
   .window-dots span {
     forced-color-adjust: none;
@@ -1950,4 +1855,4 @@ pre code {
 .install-steps ol { margin: 0; padding-left: 1.4rem; display: grid; gap: 1.25rem; }
 .install-steps li p { margin: 0 0 0.5rem; }
 .install-steps pre { margin: 0; padding: 0.85rem 1rem; overflow-x: auto; border-radius: 8px; background: rgba(37, 37, 35, 0.92); color: #f3ede2; font-size: 0.9rem; line-height: 1.5; }
-.install-steps a, .site-footer a { text-decoration: underline; text-underline-offset: 3px; }
+.install-steps a, .footer-inner p a { text-decoration: underline; text-underline-offset: 3px; }
