@@ -223,7 +223,7 @@
                 <p>
                   After you download Fast or Accurate, inference runs on your
                   Apple Silicon Mac. Switching models only downloads the one that
-                  is missing.
+                  is missing. The optional writing model is also local.
                 </p>
               </div>
             </article>
@@ -274,8 +274,8 @@
             <p>
               Pick <strong>Fast</strong> (Whisper small) for quicker results, or
               <strong>Accurate</strong> (<code>distil-large-v3</code>) for the
-              original higher-quality model. Each downloads on demand. Inference
-              never leaves this Mac.
+              original higher-quality model. Each downloads on demand from the
+              same <strong>Settings…</strong> window. Inference never leaves this Mac.
             </p>
           </article>
           <article>
@@ -284,18 +284,19 @@
             <p>
               Choose <strong>Transcribe audio file…</strong> to pick or drop a
               wav, mp3, or m4a. Files have no five-minute limit. Copy the result
-              or save a <code>.txt</code>.
+              or save a <code>.txt</code>. File transcription stays raw and does
+              not use Write or Command.
             </p>
           </article>
           <article>
-            <span class="capability-index">04 · Landing shortly</span>
+            <span class="capability-index">04</span>
             <h3>Write and Command</h3>
             <p>
-              Optional on-device cleanup, off by default. <strong>Write</strong>
-              removes filler words, fixes punctuation, and applies spoken
-              self-corrections. <strong>Command</strong> rewrites selected text
-              from a spoken instruction. Set a tone per app. Uses a local ~1&nbsp;GB
-              model. Never cloud.
+              Optional on-device cleanup for dictation, off by default.
+              <strong>Write</strong> removes filler words, fixes punctuation, and
+              applies spoken self-corrections. <strong>Command</strong> rewrites
+              selected text from a spoken instruction. Set a tone per app. Uses a
+              local ~1&nbsp;GB model. Never cloud.
             </p>
           </article>
         </div>
@@ -333,9 +334,10 @@
             <article>
               <span>04</span>
               <div>
-                <h3>A quiet menu-bar presence</h3>
+                <h3>One Settings window</h3>
                 <p>
-                  Setup and Settings stay available when you need them. The app
+                  <strong>Settings…</strong> holds the hotkey, Fast / Accurate,
+                  the optional writing-model download, and per-app tones. The app
                   stays out of the Dock when you do not.
                 </p>
               </div>
@@ -425,7 +427,7 @@ cd freevoicetranscribe</code></pre>
               <pre><code>./run.sh</code></pre>
             </li>
             <li>
-              <p>Follow the setup window: grant Microphone and Accessibility access, then download the selected local speech model. Change the hotkey or model later in Settings…</p>
+              <p>Follow the setup window: grant Microphone and Accessibility access, then download the selected local speech model. Open Settings… later for the hotkey, Fast / Accurate, the optional writing model, and per-app tones.</p>
             </li>
           </ol>
           <p class="requirements-note">
@@ -445,9 +447,10 @@ cd freevoicetranscribe</code></pre>
             <summary>Does it need an internet connection?<span aria-hidden="true"></span></summary>
             <div class="answer">
               <p>
-                Only to download the speech model you select. A second model
-                downloads only if you switch and it is not already on disk. Once a
-                model is on your Mac, transcription runs locally.
+                Only to download the speech model you select, or the optional
+                writing model if you use Write or Command. A second speech model
+                downloads only if you switch and it is not already on disk. Once
+                a model is on your Mac, work stays local.
               </p>
             </div>
           </details>
@@ -483,6 +486,7 @@ cd freevoicetranscribe</code></pre>
                 bar, then pick or drop a wav, mp3, m4a, or similar file. There is
                 no five-minute limit for files. Copy the result or save it as a
                 <code>.txt</code>. The original file is not changed or uploaded.
+                File transcription stays raw: Write and Command do not run on it.
                 Live hold-to-talk recordings are still capped at five minutes.
               </p>
             </div>
@@ -491,13 +495,15 @@ cd freevoicetranscribe</code></pre>
             <summary>What are Write and Command?<span aria-hidden="true"></span></summary>
             <div class="answer">
               <p>
-                They are landing shortly. Both are optional, off by default, and
-                stay on this Mac. <strong>Dictate</strong> remains the default and
-                never uses a writing model. <strong>Write</strong> cleans filler
-                words, punctuation, capitalization, and spoken self-corrections.
-                <strong>Command</strong> rewrites selected text from a spoken
-                instruction. You can set a tone per app. They use a local ~1&nbsp;GB
-                model and never send text to a server.
+                Both are optional, off by default, and stay on this Mac.
+                <strong>Dictate</strong> is the default and never uses a writing
+                model. <strong>Write</strong> cleans filler words, punctuation,
+                capitalization, and spoken self-corrections. <strong>Command</strong>
+                rewrites selected text from a spoken instruction. You can set a
+                tone per app. They use a local ~1&nbsp;GB model and never send
+                text to a server. Cleanup applies to dictation only. Download the
+                writing model from the same <strong>Settings…</strong> window that
+                holds the hotkey and Fast / Accurate picker.
               </p>
             </div>
           </details>
