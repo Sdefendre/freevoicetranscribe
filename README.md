@@ -135,7 +135,7 @@ python3.11 -m venv .venv
 The setup window guides you through three prerequisites:
 
 1. **Microphone access**: captures only recordings you explicitly start.
-2. **Accessibility access**: detects the global shortcut, verifies the focused editable field, and pastes the result. The app asks for it at launch, which adds FreeVoiceTranscribe to the list in System Settings (called **System & App Protection Override** on newer macOS releases).
+2. **Accessibility access**: detects the global shortcut, verifies the focused editable field, and pastes the result. The app asks for it at launch. On macOS 27.3 and later the pane is called **System & App Protection Override**, and builds without a Developer ID signature get no prompt. For those builds, click **+** in that pane, choose FreeVoiceTranscribe, then pick **Choose Apps** to allow the apps you dictate into.
 3. **Speech model**: downloads the selected local model once. Accurate (`distil-large-v3`) is the default; Fast (Whisper `small`) is the quicker option. Switch later from **Settings…**.
 
 Write and Command are optional. After setup, open **Settings…** and download the local writing model if you want cleaned-up dictation. That download also stays on this Mac. File transcription is not cleaned up.
