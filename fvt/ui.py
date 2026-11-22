@@ -311,7 +311,9 @@ class HUDView(AppKit.NSView):
         if compact:
             NSAttributedString.alloc().initWithString_attributes_(
                 snapshot.title, title_attrs
-            ).drawInRect_(AppKit.NSMakeRect(40, center_y - 10, bounds.size.width - 48, 20))
+            ).drawInRect_(
+                AppKit.NSMakeRect(40, center_y - 10, bounds.size.width - 48, 20)
+            )
             if snapshot.state is AppState.RECORDING:
                 self._draw_meter(AppKit.NSColor.systemRedColor())
             return
