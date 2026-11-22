@@ -65,7 +65,7 @@ class BundleVerifierTests(unittest.TestCase):
             "CFBundleExecutable": executable.name,
             "CFBundleIdentifier": "com.stevedefendre.freevoicetranscribe",
             "LSMinimumSystemVersion": "14.0",
-            "LSUIElement": True,
+            "LSUIElement": False,
             "NSMicrophoneUsageDescription": "Microphone access",
             "PyRuntimeLocations": [
                 "@executable_path/../Frameworks/libpython3.11.dylib"

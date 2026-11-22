@@ -52,7 +52,7 @@ OPTIONS = {
         "CFBundleShortVersionString": "2.0.0",
         "CFBundleVersion": "2.0.0",
         "LSMinimumSystemVersion": "14.0",
-        "LSUIElement": True,
+        "LSUIElement": False,
         "NSHighResolutionCapable": True,
         "NSMicrophoneUsageDescription": (
             "FreeVoiceTranscribe records only while you dictate and transcribes "

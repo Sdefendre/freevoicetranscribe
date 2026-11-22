@@ -7,6 +7,8 @@ import Quartz
 from fvt.hotkey import (
     F13_KEYCODE,
     FN_FLAG,
+    LEFT_CONTROL_FLAG,
+    RIGHT_CONTROL_FLAG,
     RIGHT_OPTION_FLAG,
     SPACE_KEYCODE,
     FnListener,
@@ -121,6 +123,26 @@ class HotkeyTests(unittest.TestCase):
         with patch.object(Quartz, "CGEventGetFlags", return_value=RIGHT_OPTION_FLAG):
             listener._callback(None, Quartz.kCGEventFlagsChanged, event, None)
         self.assertEqual(actions, ["press"])
+
+    def test_left_control_ignores_right_control_and_tracks_press_and_release(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="left-control")
+        actions = []
+        listener._dispatch = actions.append
+        event = object()
+
+        for flags in (
+            RIGHT_CONTROL_FLAG,
+            RIGHT_CONTROL_FLAG | LEFT_CONTROL_FLAG,
+            RIGHT_CONTROL_FLAG,
+            0,
+        ):
+            with patch.object(Quartz, "CGEventGetFlags", return_value=flags):
+                self.assertIs(
+                    listener._callback(None, Quartz.kCGEventFlagsChanged, event, None),
+                    event,
+                )
+
+        self.assertEqual(actions, ["press", "release"])
 
     def _f13_keydown(self, listener, *, repeat):
         def field(_event, requested):

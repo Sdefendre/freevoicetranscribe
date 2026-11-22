@@ -17,6 +17,7 @@ FN_FLAG = 0x800000
 # Device-dependent bits from IOKit so left and right modifiers stay distinct.
 RIGHT_COMMAND_FLAG = 0x00000010
 RIGHT_OPTION_FLAG = 0x00000040
+LEFT_CONTROL_FLAG = 0x00000001
 RIGHT_CONTROL_FLAG = 0x00002000
 SPACE_KEYCODE = 49
 ESCAPE_KEYCODE = 53
@@ -35,6 +36,7 @@ _RECORD_KEY_SPECS = {
     "right-option": _RecordKeySpec(flag=RIGHT_OPTION_FLAG),
     "right-command": _RecordKeySpec(flag=RIGHT_COMMAND_FLAG),
     "right-control": _RecordKeySpec(flag=RIGHT_CONTROL_FLAG),
+    "left-control": _RecordKeySpec(flag=LEFT_CONTROL_FLAG),
     "f13": _RecordKeySpec(keycode=F13_KEYCODE),
 }
 

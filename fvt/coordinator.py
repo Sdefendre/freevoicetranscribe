@@ -293,6 +293,8 @@ class AppCoordinator:
             )
             self._thread.start()
             self._events.put(Event(EventType.START))
+        if self.permissions.accessibility_state() is not PermissionState.GRANTED:
+            self.permissions.request_accessibility()
 
     def submit(self, kind: EventType, payload: object | None = None) -> None:
         with self._lifecycle_lock:

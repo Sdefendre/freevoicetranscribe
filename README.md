@@ -12,7 +12,7 @@ FreeVoiceTranscribe is free, open-source software released under the [MIT licens
 
 ## What it does
 
-- Hold the push-to-talk hotkey to record; release it to transcribe and insert. The default is **fn**. Change it in **Settings…** from the menu bar to Right Option, Right Command, Right Control, or F13. Right-side modifiers may not work on keyboards that do not distinguish left and right keys.
+- Hold the push-to-talk hotkey to record; release it to transcribe and insert. The default is **fn**. Change it in **Settings…** from the menu bar to Right Option, Right Command, Left Control, Right Control, or F13. Right-side modifiers may not work on keyboards that do not distinguish left and right keys.
 - Double-tap the hotkey to lock recording; tap it again to finish.
 - Press **hotkey + Space** while recording to switch to hands-free mode; press the hotkey again to finish.
 - Press **Esc** while recording to cancel and delete that recording.
@@ -36,7 +36,7 @@ Write and Command need a one-time on-device writing-model download (about 1 GB).
 
 You can also set an optional tone per app (for example Slack casual, Mail formal). The app looks at the frontmost app’s bundle ID and applies the prompt you saved in **Settings…**. Modes use whichever push-to-talk hotkey you chose. Cleanup applies to dictation only. File transcription stays raw.
 
-FreeVoiceTranscribe has no account system, cloud transcription, transcript history, or always-on microphone. It is a menu-bar app after setup and does not remain in the Dock.
+FreeVoiceTranscribe has no account system, cloud transcription, transcript history, or always-on microphone. It appears in the Dock and menu bar. A compact bottom-center indicator shows when dictation is ready, recording, or processing.
 
 ## Requirements
 
@@ -135,7 +135,7 @@ python3.11 -m venv .venv
 The setup window guides you through three prerequisites:
 
 1. **Microphone access**: captures only recordings you explicitly start.
-2. **Accessibility access**: detects the global shortcut, verifies the focused editable field, and pastes the result.
+2. **Accessibility access**: detects the global shortcut, verifies the focused editable field, and pastes the result. The app asks for it at launch, which adds FreeVoiceTranscribe to the list in System Settings (called **System & App Protection Override** on newer macOS releases).
 3. **Speech model**: downloads the selected local model once. Accurate (`distil-large-v3`) is the default; Fast (Whisper `small`) is the quicker option. Switch later from **Settings…**.
 
 Write and Command are optional. After setup, open **Settings…** and download the local writing model if you want cleaned-up dictation. That download also stays on this Mac. File transcription is not cleaned up.
@@ -212,7 +212,9 @@ Use a specific compatible interpreter when needed:
 PYTHON=/opt/homebrew/bin/python3.11 ./build_app.sh
 ```
 
-The default is an ad-hoc signature for local testing. To exercise the hardened-runtime signing path with an installed Developer ID identity:
+The default is an ad-hoc signature for local testing. macOS ties ad-hoc apps' privacy grants to the exact build, so every rebuild asks for Microphone and Accessibility again. To keep grants across rebuilds, create a self-signed code-signing certificate named `FreeVoiceTranscribe Local Signing` in your login keychain (or set `LOCAL_CODESIGN_IDENTITY` to another name). `build_app.sh` uses it automatically when no Developer ID identity is set.
+
+To exercise the hardened-runtime signing path with an installed Developer ID identity:
 
 ```bash
 CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./build_app.sh
