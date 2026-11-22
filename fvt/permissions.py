@@ -22,6 +22,23 @@ def _load_capture_device_class():
         )
         if bundle is not None:
             bundle.load()
+        objc.registerMetaDataForSelector(
+            b"AVCaptureDevice",
+            b"requestAccessForMediaType:completionHandler:",
+            {
+                "arguments": {
+                    3: {
+                        "callable": {
+                            "retval": {"type": b"v"},
+                            "arguments": {
+                                0: {"type": b"^v"},
+                                1: {"type": objc._C_NSBOOL},
+                            },
+                        }
+                    }
+                }
+            },
+        )
         return objc.lookUpClass("AVCaptureDevice")
     except Exception:
         return None

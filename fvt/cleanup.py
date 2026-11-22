@@ -254,9 +254,14 @@ class LocalTextCleaner:
                 return False
         except OSError:
             return False
-        return any(self.model_dir.glob("*.safetensors")) or any(
-            self.model_dir.glob("*.npz")
-        )
+        for pattern in ("*.safetensors", "*.npz"):
+            for candidate in self.model_dir.glob(pattern):
+                try:
+                    if candidate.is_file() and candidate.stat().st_size > 0:
+                        return True
+                except OSError:
+                    continue
+        return False
 
     @property
     def is_ready(self) -> bool:
@@ -280,6 +285,8 @@ class LocalTextCleaner:
         with self._prepare_lock:
             if self.is_ready:
                 return
+            if cancel_event is not None and cancel_event.is_set():
+                raise WritingModelUnavailable("Writing model download was cancelled")
             try:
                 if not self.model_present:
                     if not allow_download:

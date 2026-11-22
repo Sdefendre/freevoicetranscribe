@@ -591,6 +591,186 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         self.assertEqual(self.inserter.inserted, [])
         self.assertTrue(self.coordinator.snapshot.has_last_transcript)
 
+    def test_refresh_setup_during_recording_keeps_recording_active(self):
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.refresh_setup()
+        time.sleep(0.05)
+        self.assertEqual(self.coordinator.snapshot.state, AppState.RECORDING)
+        self.assertTrue(self.audio.started)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+
+    def test_refresh_setup_preserves_error_state_while_ready(self):
+        self.inserter.target = None
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.ERROR)
+        title = self.coordinator.snapshot.title
+        self.coordinator.refresh_setup()
+        time.sleep(0.05)
+        self.assertEqual(self.coordinator.snapshot.state, AppState.ERROR)
+        self.assertEqual(self.coordinator.snapshot.title, title)
+
+    def test_insert_last_transcript_from_idle_inserts_without_error(self):
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(len(self.inserter.inserted), 1)
+
+        self.coordinator.insert_last_transcript()
+        wait_for(lambda: len(self.inserter.inserted) == 2)
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[1][0], "hello world")
+
+    def test_insert_last_transcript_from_setup_required_returns_to_setup(self):
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+
+        self.transcriber._ready = False
+        self.coordinator.refresh_setup()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.SETUP_REQUIRED)
+
+        self.coordinator.insert_last_transcript()
+        wait_for(lambda: len(self.inserter.inserted) == 2)
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.SETUP_REQUIRED)
+
+    def test_insert_last_transcript_during_model_download_publishes_setup_state(self):
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+
+        download_started = threading.Event()
+        release_download = threading.Event()
+
+        class BlockingDownloadTranscriber(FakeTranscriber):
+            def prepare(self, *, allow_download, on_status=None, on_progress=None):
+                if on_status:
+                    on_status("Downloading Fast model")
+                if on_progress:
+                    on_progress(0.4)
+                download_started.set()
+                release_download.wait(2.0)
+                super().prepare(
+                    allow_download=allow_download,
+                    on_status=on_status,
+                    on_progress=on_progress,
+                )
+
+        self.transcriber = BlockingDownloadTranscriber(ready=False, present=False)
+        self.coordinator.transcriber = self.transcriber
+        self.coordinator.refresh_setup()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.SETUP_REQUIRED)
+
+        published = []
+        self.coordinator.set_observers(on_snapshot=published.append)
+        self.coordinator.download_model()
+        self.assertTrue(download_started.wait(1.0))
+        wait_for(lambda: self.coordinator.snapshot.readiness.model_busy)
+
+        self.coordinator.insert_last_transcript()
+        wait_for(lambda: len(self.inserter.inserted) == 2)
+        wait_for(
+            lambda: (
+                self.coordinator.snapshot.state is AppState.SETUP_REQUIRED
+                and self.coordinator.snapshot.title != "Inserting text"
+                and published[-1].state is AppState.SETUP_REQUIRED
+            )
+        )
+        self.assertEqual(published[-1].state, AppState.SETUP_REQUIRED)
+        self.assertEqual(published[-1].title, "Preparing speech model")
+        self.assertIsNone(published[-1].target_screen)
+
+        release_download.set()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+
+    def test_select_model_is_ignored_during_file_transcription(self):
+        path = self._write_wav("long.wav", 75)
+        started = threading.Event()
+        release = threading.Event()
+
+        class BlockingTranscriber(FakeTranscriber):
+            def transcribe_samples(self, samples):
+                self.calls += 1
+                started.set()
+                release.wait(1.0)
+                return self.text
+
+        self.transcriber = BlockingTranscriber(
+            present_by_name={"distil-large-v3": True, "small": True}
+        )
+        self.coordinator.transcriber = self.transcriber
+        self.coordinator.transcribe_audio_file(path)
+        self.assertTrue(started.wait(1.0))
+
+        self.coordinator.select_model_profile("fast")
+        time.sleep(0.05)
+        self.assertEqual(self.transcriber.model_name, "distil-large-v3")
+        self.assertTrue(self.transcriber.is_ready)
+
+        release.set()
+        wait_for(lambda: self.coordinator.file_result == "hello world")
+
+    def test_double_tap_uses_event_timestamps_despite_slow_audio_start(self):
+        self.coordinator._tap_max_hold = 0.08
+        self.coordinator._double_tap_window = 0.3
+
+        class SlowStartAudio(FakeAudio):
+            def start(self, on_level=None, on_limit=None):
+                time.sleep(0.15)
+                super().start(on_level=on_level, on_limit=on_limit)
+
+        self.audio = SlowStartAudio(self.temp.name)
+        self.coordinator.audio = self.audio
+        self.coordinator.fn_press()
+        time.sleep(0.02)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        time.sleep(0.03)
+        self.assertEqual(self.coordinator.snapshot.state, AppState.RECORDING)
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.hands_free)
+        self.coordinator.cancel_recording()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+
+    def test_copy_last_failure_during_recording_does_not_abort_recording(self):
+        def failing_copy(_text):
+            raise RuntimeError("clipboard unavailable")
+
+        self.inserter.copy = failing_copy
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.copy_transcript("some saved text")
+        time.sleep(0.05)
+        self.assertEqual(self.coordinator.snapshot.state, AppState.RECORDING)
+        self.assertTrue(self.audio.started)
+        self.coordinator.cancel_recording()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+
+    def test_shutdown_cancels_active_file_transcription(self):
+        path = Path(self.temp.name) / "talk.m4a"
+        path.write_bytes(b"not a wav")
+        started = threading.Event()
+        cancelled = threading.Event()
+
+        def blocking_load(*_args, **kwargs):
+            started.set()
+            cancel = kwargs.get("cancel_event")
+            if cancel is not None and cancel.wait(1.0):
+                cancelled.set()
+                raise AudioFileCancelled("cancelled")
+            raise AssertionError("cancel event was not set on shutdown")
+
+        with patch("fvt.coordinator.load_mono_16k", side_effect=blocking_load):
+            self.coordinator.transcribe_audio_file(path)
+            self.assertTrue(started.wait(1.0))
+            self.assertTrue(self.coordinator.shutdown(timeout=1.0))
+        self.assertTrue(cancelled.is_set())
+
 
 class CoordinatorWritingTests(unittest.TestCase):
     def setUp(self):
@@ -790,6 +970,72 @@ class CoordinatorWritingTests(unittest.TestCase):
         wait_for(lambda: self.cleaner.prepare_calls == [True])
         wait_for(lambda: not self.coordinator.snapshot.writing_model_busy)
         self.assertFalse(self.coordinator.snapshot.writing_model_ready)
+
+    def test_command_mode_without_ready_model_leaves_selection_unchanged(self):
+        self.cleaner.auto_ready = False
+        self.cleaner._ready = False
+        self.cleaner._present = False
+        self.coordinator.set_dictation_mode("command")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
+        )
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.ERROR)
+        self.assertEqual(self.inserter.inserted, [])
+        self.assertEqual(self.inserter.copied, ["hello world"])
+        self.assertIn("left unchanged", self.coordinator.snapshot.detail)
+
+    def test_switching_mode_while_recording_keeps_initial_recording_mode(self):
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.set_dictation_mode("command")
+        wait_for(
+            lambda: self.coordinator.snapshot.dictation_mode is DictationMode.COMMAND
+        )
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+        self.assertEqual(self.cleaner.calls, [])
+
+    def test_cancelling_writing_model_then_restarting_keeps_old_cancel_set(self):
+        first_started = threading.Event()
+        cancel_events = []
+
+        class TrackingCleaner(FakeCleaner):
+            def prepare(
+                self,
+                *,
+                allow_download,
+                on_status=None,
+                cancel_event=None,
+                timeout_seconds=None,
+            ):
+                cancel_events.append(cancel_event)
+                if len(cancel_events) == 1:
+                    first_started.set()
+                    cancel_event.wait(1.0)
+                    if on_status:
+                        on_status("Stale status from cancelled download")
+                    raise RuntimeError("cancelled")
+                self._present = True
+                self._ready = True
+
+        self.cleaner = TrackingCleaner(ready=False, present=False)
+        self.coordinator.cleaner = self.cleaner
+        self.coordinator.download_writing_model()
+        self.assertTrue(first_started.wait(1.0))
+        self.coordinator.cancel_writing_model()
+        self.coordinator.download_writing_model()
+        wait_for(lambda: len(cancel_events) == 2)
+        self.assertTrue(cancel_events[0].is_set())
+        self.assertIsNot(cancel_events[0], cancel_events[1])
+        wait_for(lambda: self.coordinator.snapshot.writing_model_ready)
+        self.assertNotEqual(
+            self.coordinator.snapshot.title,
+            "Stale status from cancelled download",
+        )
 
 
 class CoordinatorSetupTests(unittest.TestCase):

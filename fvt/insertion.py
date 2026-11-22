@@ -192,10 +192,11 @@ class MacWindowLocator:
             return None
 
         screens = list(AppKit.NSScreen.screens() or [])
-        primary = AppKit.NSScreen.mainScreen()
-        if not screens or primary is None:
+        if not screens:
             return None
-        primary_height = float(primary.frame().size.height)
+        # Quartz window bounds use the top-left of screens[0] (the primary
+        # display), whereas NSScreen.mainScreen() follows keyboard focus.
+        primary_height = float(screens[0].frame().size.height)
         window_rect = (
             float(bounds["X"]),
             float(bounds["Y"]),

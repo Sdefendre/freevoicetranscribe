@@ -65,7 +65,7 @@ def create_application(paths: AppPaths | None = None):
         settings_store=settings,
         temp_dir=paths.temp,
         cleaner=LocalTextCleaner(paths, logger=logger.getChild("cleanup")),
-        transcript_store=LastTranscriptStore.default(),
+        transcript_store=LastTranscriptStore(paths.support / "last-transcript.json"),
     )
     coordinator_ref["coordinator"] = coordinator
     status_bar = StatusBarApp(coordinator)

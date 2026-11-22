@@ -63,11 +63,11 @@ def suggested_transcript_name(audio_path: Path) -> str:
 
 
 def write_canonical_wav(samples: np.ndarray, dest_dir: Path) -> Path:
+    pcm = np.clip(np.asarray(samples) * 32768.0, -32768, 32767).astype(np.int16)
     dest_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd, raw_path = tempfile.mkstemp(prefix="chunk-", suffix=".wav", dir=dest_dir)
     path = Path(raw_path)
     os.close(fd)
-    pcm = np.clip(np.asarray(samples) * 32768.0, -32768, 32767).astype(np.int16)
     try:
         path.chmod(0o600)
         with wave.open(str(path), "wb") as output:
@@ -82,11 +82,24 @@ def write_canonical_wav(samples: np.ndarray, dest_dir: Path) -> Path:
 
 
 def write_transcript_text(path: Path, text: str) -> None:
-    path.write_text(text, encoding="utf-8")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd_owned = True
     try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+        try:
+            os.fchmod(fd, 0o600)
+        except OSError:
+            pass
+        destination = os.fdopen(fd, "w", encoding="utf-8")
+        fd_owned = False
+        with destination:
+            destination.write(text)
+    except Exception:
+        if fd_owned:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        raise
 
 
 def join_transcripts(parts: list[str]) -> str:
@@ -109,9 +122,8 @@ def _merge_overlapping_text(left: str, right: str) -> str:
         return left
     max_overlap = min(len(left_words), len(right_words))
     for size in range(max_overlap, 0, -1):
-        if _normalized_words(left_words[-size:]) == _normalized_words(
-            right_words[:size]
-        ):
+        norm_left = _normalized_words(left_words[-size:])
+        if any(norm_left) and norm_left == _normalized_words(right_words[:size]):
             return " ".join(left_words + right_words[size:])
     return " ".join(left_words + right_words)
 
@@ -219,12 +231,11 @@ def convert_with_afconvert(
                 f"LEI16@{SAMPLE_RATE}",
                 "-c",
                 "1",
-                str(source),
-                str(dest),
+                os.path.abspath(source),
+                os.path.abspath(dest),
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError as exc:
         raise AudioFileError("This Mac could not convert that audio file.") from exc
@@ -303,6 +314,8 @@ def _load_pcm_wav(path: Path) -> np.ndarray | None:
         return None
 
     if channels not in {1, 2} or rate <= 0:
+        return None
+    if len(payload) % (2 * channels) != 0:
         return None
     samples = np.frombuffer(payload, dtype=np.int16).astype(np.float32) / 32768.0
     if channels == 2:

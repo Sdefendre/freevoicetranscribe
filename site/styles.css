@@ -203,8 +203,7 @@ main:focus {
   transition: color 180ms var(--ease-out);
 }
 
-.site-nav a:hover,
-.site-footer a:hover {
+.site-nav a:hover {
   color: var(--red-dark);
 }
 
@@ -953,6 +952,17 @@ pre code {
   font-size: var(--text-xs);
 }
 
+.final-section .btn-primary {
+  border-color: var(--dark-text);
+  color: var(--dark);
+  background: var(--dark-text);
+}
+
+.final-section .btn-primary:hover {
+  color: var(--dark-text);
+  background: transparent;
+}
+
 /* ---------- Footer ---------- */
 
 .site-footer {
@@ -982,6 +992,10 @@ pre code {
 .site-footer a {
   color: var(--dark-muted);
   font-size: var(--text-xs);
+}
+
+.site-footer a:hover {
+  color: var(--dark-text);
 }
 
 /* ---------- Keyframes ---------- */

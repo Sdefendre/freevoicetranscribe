@@ -94,18 +94,34 @@ class AudioRecorder:
     def input_device_name(self) -> str | None:
         if self._input_device_name is not None:
             return self._input_device_name
-        if self._input_device_index is not None and self._session is None:
+        with self._lock:
+            session = self._session
+            active_pa = session.pa if session is not None else None
+        if active_pa is not None:
             try:
-                with self._pa_factory() as pa:
-                    info = pa.get_device_info_by_index(self._input_device_index)
+                info = (
+                    active_pa.get_device_info_by_index(self._input_device_index)
+                    if self._input_device_index is not None
+                    else active_pa.get_default_input_device_info()
+                )
             except Exception:
                 return None
             return info.get("name") if isinstance(info, dict) else None
-        return self._input_device_name or (
-            self._session.pa.get_default_input_device_info().get("name")
-            if self._session is not None and self._session.pa is not None
-            else None
-        )
+        if self._input_device_index is not None:
+            pa = None
+            try:
+                pa = self._pa_factory()
+                info = pa.get_device_info_by_index(self._input_device_index)
+            except Exception:
+                return None
+            finally:
+                if pa is not None:
+                    try:
+                        pa.terminate()
+                    except Exception:
+                        pass
+            return info.get("name") if isinstance(info, dict) else None
+        return None
 
     @property
     def used_default_device(self) -> bool:

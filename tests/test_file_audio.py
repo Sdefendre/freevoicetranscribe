@@ -188,6 +188,45 @@ class FileAudioTests(unittest.TestCase):
                     )
             process.terminate.assert_called()
 
+    def test_truncated_odd_byte_wav_raises_audio_file_error_not_value_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "truncated.wav"
+            write_wav(path, seconds=0.1)
+            raw = path.read_bytes()
+            path.write_bytes(raw[:-1])
+            with patch(
+                "fvt.file_audio.convert_with_afconvert",
+                side_effect=AudioFileError("could not convert"),
+            ):
+                with self.assertRaises(AudioFileError):
+                    load_mono_16k(path, temp_dir=root / "tmp")
+
+    def test_afconvert_uses_abspath_and_devnull(self):
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / "out.wav"
+            dest.write_bytes(b"RIFF")
+            process = Mock()
+            process.poll.return_value = 0
+            process.returncode = 0
+            process.communicate.return_value = (None, None)
+            with patch(
+                "fvt.file_audio.subprocess.Popen", return_value=process
+            ) as popen:
+                convert_with_afconvert(Path("-dash-file.mp3"), dest)
+            args = popen.call_args.args[0]
+            kwargs = popen.call_args.kwargs
+            self.assertTrue(args[-2].startswith("/"))
+            self.assertTrue(args[-1].startswith("/"))
+            self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
+            self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
+
+    def test_join_transcripts_does_not_drop_unrelated_standalone_punctuation(self):
+        self.assertEqual(
+            join_transcripts(["hello ...", ", world"]),
+            "hello ... , world",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

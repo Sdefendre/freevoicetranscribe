@@ -15,6 +15,7 @@ from fvt.ui import (
     RecordingHUD,
     SettingsWindow,
     SetupWindow,
+    StatusBarApp,
     _button,
     _hud_frame_for_screen,
     _hud_palette,
@@ -402,6 +403,128 @@ class NativeUITests(unittest.TestCase):
         settings.writingModelPressed_(None)
         self.assertEqual(coordinator.writing_cancels, 1)
         settings._window.orderOut_(None)
+
+    def test_settings_window_preserves_tone_fields_when_tones_are_unchanged(self):
+        coordinator = FakeCoordinator()
+        settings = SettingsWindow.alloc().initWithCoordinator_(coordinator)
+        snapshot = AppSnapshot(state=AppState.IDLE, title="Ready")
+        settings.update(snapshot)
+        initial_fields = list(settings._tone_fields.keys())
+        self.assertEqual(len(initial_fields), 1)
+
+        settings.update(snapshot)
+        self.assertEqual(list(settings._tone_fields.keys()), initial_fields)
+
+        coordinator.tones["com.tinyspeck.slackmacgap"] = "Casual."
+        settings.update(snapshot)
+        self.assertEqual(len(settings._tone_fields), 2)
+        settings._window.orderOut_(None)
+
+    def test_file_window_preserves_error_and_saved_status_across_refreshes(self):
+        coordinator = FakeFileCoordinator()
+        window = FileTranscribeWindow.alloc().initWithCoordinator_(coordinator)
+        ready = Readiness(
+            microphone=PermissionState.GRANTED,
+            accessibility=PermissionState.GRANTED,
+            model_present=True,
+            model_ready=True,
+        )
+        window.update(
+            AppSnapshot(
+                state=AppState.FILE_TRANSCRIBING,
+                title="Transcribing file",
+                detail="Reading broken.mp3 locally.",
+                readiness=ready,
+            )
+        )
+        error_snapshot = AppSnapshot(
+            state=AppState.ERROR,
+            title="Couldn’t transcribe that file",
+            detail="This audio file could not be read on this Mac.",
+            readiness=ready,
+        )
+        window.update(error_snapshot)
+        self.assertIn("could not be read", str(window._status.stringValue()))
+
+        # Subsequent snapshot refreshes must not erase the file failure message.
+        window.update(error_snapshot)
+        self.assertIn("could not be read", str(window._status.stringValue()))
+
+        # Saving a transcript preserves the saved confirmation across refreshes.
+        coordinator.file_result = "final transcript"
+        window.update(
+            AppSnapshot(
+                state=AppState.IDLE,
+                title="File transcribed",
+                readiness=ready,
+            )
+        )
+        window._status_sticky = True
+        window._status.setStringValue_("Saved as a text file.")
+        window.update(
+            AppSnapshot(
+                state=AppState.IDLE,
+                title="Ready",
+                readiness=ready,
+            )
+        )
+        self.assertEqual(str(window._status.stringValue()), "Saved as a text file.")
+        window._window.orderOut_(None)
+
+    def test_status_bar_keeps_file_item_openable_during_file_transcription_and_validates_feedback_url(
+        self,
+    ):
+        coordinator = FakeCoordinator()
+        coordinator.dismiss_error = lambda: None
+
+        class FakeSettingsStore:
+            def __init__(self, url):
+                self._url = url
+
+            def load(self):
+                return {"feedback_url": self._url}
+
+        coordinator.settings_store = FakeSettingsStore("file:///Applications/Calc.app")
+        app = StatusBarApp(coordinator)
+        ready = Readiness(
+            microphone=PermissionState.GRANTED,
+            accessibility=PermissionState.GRANTED,
+            model_present=True,
+            model_ready=True,
+        )
+        app.update(
+            AppSnapshot(
+                state=AppState.FILE_TRANSCRIBING,
+                title="Transcribing file",
+                readiness=ready,
+            )
+        )
+        self.assertIsNotNone(app._file_item.callback)
+
+        opened = []
+
+        class FakeWorkspace:
+            def openURL_(self, url):
+                opened.append(str(url.absoluteString()))
+
+        class FakeAppKit:
+            NSURL = AppKit.NSURL
+
+            class NSWorkspace:
+                @staticmethod
+                def sharedWorkspace():
+                    return FakeWorkspace()
+
+        with patch("fvt.ui.AppKit", FakeAppKit):
+            app.open_feedback()
+        self.assertEqual(
+            opened,
+            ["https://github.com/Sdefendre/freevoicetranscribe/issues/new"],
+        )
+        app.hud._hide()
+        app.setup_window._window.orderOut_(None)
+        app.settings_window._window.orderOut_(None)
+        app.file_window._window.orderOut_(None)
 
 
 if __name__ == "__main__":

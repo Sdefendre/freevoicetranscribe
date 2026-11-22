@@ -1,5 +1,9 @@
 import unittest
 from contextlib import contextmanager
+from unittest.mock import patch
+
+import AppKit
+import Quartz
 
 from fvt.contracts import ScreenFrame, SelectionMismatchError, TargetApp
 from fvt.insertion import (
@@ -7,6 +11,7 @@ from fvt.insertion import (
     ClipboardStageError,
     InsertionError,
     MacTextInserter,
+    MacWindowLocator,
 )
 
 
@@ -224,6 +229,63 @@ class InsertionTests(unittest.TestCase):
             service.insert("rewrite", target, expected_selection="already highlighted")
         self.assertEqual(clipboard.contents, "original")
         self.assertFalse(clipboard.restored)
+
+    def test_window_locator_uses_primary_screen_height_not_main_screen(self):
+        class FakeScreen:
+            def __init__(self, frame, visible):
+                self._frame = frame
+                self._visible = visible
+
+            def frame(self):
+                return self._frame
+
+            def visibleFrame(self):
+                return self._visible
+
+        # Primary screen (screens[0]) is 1440x900 at Cocoa (0, 0).
+        # Secondary tall monitor is 2560x1440 placed to the right, bottom-aligned
+        # at Cocoa y=0 (Quartz y = 900 - 1440 = -540).
+        primary = FakeScreen(
+            AppKit.NSMakeRect(0, 0, 1440, 900),
+            AppKit.NSMakeRect(0, 0, 1440, 875),
+        )
+        secondary = FakeScreen(
+            AppKit.NSMakeRect(1440, 0, 2560, 1440),
+            AppKit.NSMakeRect(1440, 0, 2560, 1415),
+        )
+        # Window sits near the top of the secondary monitor (Quartz y = -400).
+        windows = [
+            {
+                Quartz.kCGWindowOwnerPID: 4242,
+                Quartz.kCGWindowLayer: 0,
+                Quartz.kCGWindowBounds: {
+                    "X": 1600,
+                    "Y": -400,
+                    "Width": 800,
+                    "Height": 300,
+                },
+            }
+        ]
+
+        class FakeNSScreen:
+            @staticmethod
+            def screens():
+                return [primary, secondary]
+
+            @staticmethod
+            def mainScreen():
+                return secondary
+
+        fake_appkit = type("FakeAppKit", (), {"NSScreen": FakeNSScreen})
+        with (
+            patch.object(Quartz, "CGWindowListCopyWindowInfo", return_value=windows),
+            patch("fvt.insertion.AppKit", fake_appkit),
+        ):
+            frame = MacWindowLocator().screen_for_pid(4242)
+        self.assertEqual(
+            frame,
+            ScreenFrame(x=1440.0, y=0.0, width=2560.0, height=1415.0),
+        )
 
 
 if __name__ == "__main__":
