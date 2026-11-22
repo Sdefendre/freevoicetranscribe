@@ -180,6 +180,31 @@ class HotkeyTests(unittest.TestCase):
         listener.set_record_key("f13")
         self.assertEqual(listener.record_key, "f13")
 
+    def test_uses_listen_only_tap_without_full_accessibility(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="left-control")
+        with patch.object(Quartz, "CGPreflightPostEventAccess", return_value=False), \
+                patch.object(Quartz, "CGEventTapCreate", return_value=None) as create:
+            listener._create_tap()
+        self.assertTrue(listener.listen_only)
+        self.assertEqual(create.call_args.args[2], Quartz.kCGEventTapOptionListenOnly)
+
+    def test_uses_filtering_tap_with_full_accessibility(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="left-control")
+        with patch.object(Quartz, "CGPreflightPostEventAccess", return_value=True), \
+                patch.object(Quartz, "CGEventTapCreate", return_value=None) as create:
+            listener._create_tap()
+        self.assertFalse(listener.listen_only)
+        self.assertEqual(create.call_args.args[2], Quartz.kCGEventTapOptionDefault)
+
+    def test_reports_input_monitoring_when_listen_only_tap_fails(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="left-control")
+        with patch.object(Quartz, "CGPreflightPostEventAccess", return_value=False), \
+                patch.object(Quartz, "CGEventTapCreate", return_value=None), \
+                patch.object(Quartz, "CGPreflightListenEventAccess", return_value=False), \
+                patch.object(Quartz, "CGRequestListenEventAccess") as request:
+            self.assertFalse(listener.start())
+        request.assert_called_once()
+        self.assertIn("Input Monitoring", listener.last_error)
 
 if __name__ == "__main__":
     unittest.main()

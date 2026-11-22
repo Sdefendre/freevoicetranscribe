@@ -418,6 +418,15 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         self.assertTrue(self.audio.cancelled)
         self.assertFalse(self.hotkey.active)
 
+    def test_periodic_refresh_keeps_active_recording(self):
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.refresh_setup()
+        self.coordinator.refresh_setup()
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+
     def test_insert_failure_copies_and_keeps_persistent_recovery(self):
         self.inserter.fail = True
         self.coordinator.fn_press()

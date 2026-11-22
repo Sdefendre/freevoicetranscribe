@@ -583,7 +583,10 @@ class AppCoordinator:
                         "Failed hotkey startup cleanup failed", exc_info=True
                     )
 
+        # The menu refreshes every second; a healthy refresh must not end a
+        # recording. Permission loss is handled above.
         active = state in {
+            AppState.RECORDING,
             AppState.TRANSCRIBING,
             AppState.FILE_TRANSCRIBING,
             AppState.INSERTING,
@@ -1041,7 +1044,9 @@ class AppCoordinator:
                 on_limit=lambda: self.submit(EventType.AUDIO_LIMIT),
             )
         except Exception as exc:
-            self._logger.warning("Recording could not start: %s", type(exc).__name__)
+            self._logger.warning(
+                "Recording could not start: %s: %s", type(exc).__name__, exc
+            )
             self._target = None
             self._set_error(
                 "Couldn’t start the microphone",
