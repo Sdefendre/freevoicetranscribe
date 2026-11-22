@@ -30,6 +30,11 @@ from .storage import (
 
 HUD_WIDTH = 424
 HUD_HEIGHT = 82
+HUD_COMPACT_WIDTH = 178
+HUD_COMPACT_HEIGHT = 36
+HUD_IDLE_WIDTH = 44
+HUD_IDLE_HEIGHT = 10
+HUD_IDLE_STATES = {AppState.IDLE, AppState.SETUP_REQUIRED}
 HUD_SCREEN_MARGIN = 12
 HUD_BOTTOM_OFFSET = 72
 
@@ -195,14 +200,20 @@ def _hud_palette(*, dark: bool, reduce_transparency: bool, increase_contrast: bo
     }
 
 
-def _hud_frame_for_screen(screen: ScreenFrame):
+def _hud_frame_for_screen(
+    screen: ScreenFrame, *, compact: bool = False, idle: bool = False
+):
     """Fit the HUD fully inside a supplied visible display frame."""
     width = max(1.0, float(screen.width))
     height = max(1.0, float(screen.height))
     margin_x = min(float(HUD_SCREEN_MARGIN), width / 2)
     margin_y = min(float(HUD_SCREEN_MARGIN), height / 2)
-    panel_width = min(float(HUD_WIDTH), max(1.0, width - 2 * margin_x))
-    panel_height = min(float(HUD_HEIGHT), max(1.0, height - 2 * margin_y))
+    desired_width = HUD_COMPACT_WIDTH if compact else HUD_WIDTH
+    desired_height = HUD_COMPACT_HEIGHT if compact else HUD_HEIGHT
+    if idle:
+        desired_width, desired_height = HUD_IDLE_WIDTH, HUD_IDLE_HEIGHT
+    panel_width = min(float(desired_width), max(1.0, width - 2 * margin_x))
+    panel_height = min(float(desired_height), max(1.0, height - 2 * margin_y))
 
     min_x = float(screen.x) + margin_x
     max_x = float(screen.x) + width - panel_width - margin_x
@@ -211,7 +222,7 @@ def _hud_frame_for_screen(screen: ScreenFrame):
 
     min_y = float(screen.y) + margin_y
     max_y = float(screen.y) + height - panel_height - margin_y
-    preferred_y = float(screen.y) + HUD_BOTTOM_OFFSET
+    preferred_y = float(screen.y) + (HUD_SCREEN_MARGIN if idle else HUD_BOTTOM_OFFSET)
     y = min(max(preferred_y, min_y), max_y) if max_y >= min_y else min_y
     return AppKit.NSMakeRect(x, y, panel_width, panel_height)
 
@@ -265,8 +276,11 @@ class HUDView(AppKit.NSView):
             increase_contrast=self.increase_contrast,
         )
         palette["background"].setFill()
+        compact = snapshot.state is not AppState.ERROR
+        idle = snapshot.state in HUD_IDLE_STATES
+        radius = 5 if idle else (18 if compact else 11)
         path = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-            self.bounds(), 11, 11
+            self.bounds(), radius, radius
         )
         path.fill()
         palette["border"].setStroke()
@@ -275,13 +289,18 @@ class HUDView(AppKit.NSView):
 
         bounds = self.bounds()
         center_y = bounds.size.height / 2
+        if idle:
+            palette["neutral_mark"].setFill()
+            AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                AppKit.NSMakeRect((bounds.size.width - 12) / 2, center_y - 1, 12, 2),
+                1,
+                1,
+            ).fill()
+            return
         self._draw_state_mark(snapshot, palette, center_y)
 
         text_x = 46
-        right_reserve = 102 if snapshot.state is AppState.ERROR else 94
-        if snapshot.state not in {AppState.ERROR, AppState.RECORDING}:
-            right_reserve = 18
-        text_width = max(80, bounds.size.width - text_x - right_reserve)
+        text_width = max(80, bounds.size.width - text_x - 102)
 
         title_attrs = {
             AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(
@@ -289,6 +308,16 @@ class HUDView(AppKit.NSView):
             ),
             AppKit.NSForegroundColorAttributeName: palette["title"],
         }
+        if compact:
+            NSAttributedString.alloc().initWithString_attributes_(
+                snapshot.title, title_attrs
+            ).drawInRect_(
+                AppKit.NSMakeRect(40, center_y - 10, bounds.size.width - 48, 20)
+            )
+            if snapshot.state is AppState.RECORDING:
+                self._draw_meter(AppKit.NSColor.systemRedColor())
+            return
+
         detail_attrs = {
             AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(11.5),
             AppKit.NSForegroundColorAttributeName: palette["detail"],
@@ -301,9 +330,6 @@ class HUDView(AppKit.NSView):
         NSAttributedString.alloc().initWithString_attributes_(
             snapshot.detail, detail_attrs
         ).drawInRect_(AppKit.NSMakeRect(text_x, 12, text_width, 30))
-
-        if snapshot.state is AppState.RECORDING:
-            self._draw_meter(AppKit.NSColor.systemRedColor())
 
     def viewDidChangeEffectiveAppearance(self) -> None:
         objc.super(HUDView, self).viewDidChangeEffectiveAppearance()
@@ -352,13 +378,13 @@ class HUDView(AppKit.NSView):
     @objc.python_method
     def _draw_meter(self, color) -> None:
         color.setFill()
-        base_x = self.bounds().size.width - 72
+        base_x = self.bounds().size.width - 58
         center_y = self.bounds().size.height / 2
         for index in range(6):
             variation = 0.55 + 0.45 * math.sin(index * 1.7)
-            height = 5 + min(1.0, self.level * 8) * 28 * variation
+            height = 5 + min(1.0, self.level * 8) * 16 * variation
             rect = AppKit.NSMakeRect(
-                base_x + index * 9,
+                base_x + index * 7,
                 center_y - height / 2,
                 4,
                 height,
@@ -398,6 +424,7 @@ class RecordingHUD(NSObject):
                 False,
             )
         )
+        self._panel.setHidesOnDeactivate_(False)
         self._panel.setLevel_(AppKit.NSFloatingWindowLevel)
         self._panel.setOpaque_(False)
         self._panel.setBackgroundColor_(AppKit.NSColor.clearColor())
@@ -426,6 +453,8 @@ class RecordingHUD(NSObject):
         self._snapshot = snapshot
         self._view.setSnapshot_(snapshot)
         visible = snapshot.state in {
+            AppState.SETUP_REQUIRED,
+            AppState.IDLE,
             AppState.RECORDING,
             AppState.TRANSCRIBING,
             AppState.INSERTING,
@@ -455,7 +484,10 @@ class RecordingHUD(NSObject):
         self._sync_display_options()
         self._panel.orderFrontRegardless()
         self._ensure_timer(snapshot.state is AppState.RECORDING)
-        self._announce(snapshot)
+        if snapshot.state in HUD_IDLE_STATES:
+            self._last_announcement = None
+        else:
+            self._announce(snapshot)
 
     @objc.python_method
     def _position(self, snapshot: AppSnapshot) -> None:
@@ -471,7 +503,11 @@ class RecordingHUD(NSObject):
                 width=float(native_frame.size.width),
                 height=float(native_frame.size.height),
             )
-        frame = _hud_frame_for_screen(screen)
+        idle = snapshot.state in HUD_IDLE_STATES
+        frame = _hud_frame_for_screen(
+            screen, compact=snapshot.state is not AppState.ERROR, idle=idle
+        )
+        self._panel.setHasShadow_(not idle)
         self._panel.setFrame_display_(frame, True)
         self._layout_contents(frame.size.width, frame.size.height)
 

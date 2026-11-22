@@ -273,9 +273,10 @@ class MacTextInserter:
         if pid == self._own_pid:
             return None
         bundle_id = str(app.bundleIdentifier() or "")
+        # macOS 27.3 per-app grants and many custom editors hide the focused
+        # field. Like other dictation apps, fall back to pasting into the
+        # frontmost app; the field is only revalidated when it was captured.
         focused = self._accessibility.capture_focused_editable(pid)
-        if focused is None:
-            return None
         self._captured_key = (pid, bundle_id)
         self._captured_element = focused
         name = str(app.localizedName() or "Application")
@@ -306,10 +307,7 @@ class MacTextInserter:
         self._captured_element = None
 
     def _activate_valid_target(self, target: TargetApp):
-        if (
-            self._captured_key != (target.pid, target.bundle_id)
-            or self._captured_element is None
-        ):
+        if self._captured_key != (target.pid, target.bundle_id):
             raise InsertionError(
                 "The original text field could not be verified. The transcript was not inserted."
             )
@@ -336,8 +334,10 @@ class MacTextInserter:
             raise InsertionError(
                 f"Could not verify focus in {target.name}. The transcript was not inserted."
             )
-        if not self._accessibility.focused_element_matches(
-            target.pid, self._captured_element
+        if self._captured_element is not None and not (
+            self._accessibility.focused_element_matches(
+                target.pid, self._captured_element
+            )
         ):
             raise InsertionError(
                 "The original text field lost focus. The transcript was not inserted elsewhere."

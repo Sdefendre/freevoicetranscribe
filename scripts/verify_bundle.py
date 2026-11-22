@@ -458,8 +458,8 @@ def verify_bundle(
 
     if plist.get("CFBundleIdentifier") != "com.stevedefendre.freevoicetranscribe":
         _fail("unexpected bundle identifier")
-    if plist.get("LSUIElement") is not True:
-        _fail("the menu-bar app must have LSUIElement=true")
+    if plist.get("LSUIElement") is not False:
+        _fail("the Dock app must have LSUIElement=false")
     if plist.get("LSMinimumSystemVersion") != "14.0":
         _fail("the minimum macOS version must be 14.0")
     if not plist.get("NSMicrophoneUsageDescription"):

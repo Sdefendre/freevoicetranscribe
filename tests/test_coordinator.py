@@ -40,6 +40,9 @@ class FakePermissions:
     def request_microphone(self, callback):
         callback(True)
 
+    def request_accessibility(self):
+        self.accessibility_requests = getattr(self, "accessibility_requests", 0) + 1
+
     def open_accessibility_settings(self):
         pass
 
@@ -415,6 +418,15 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         self.assertTrue(self.audio.cancelled)
         self.assertFalse(self.hotkey.active)
 
+    def test_periodic_refresh_keeps_active_recording(self):
+        self.coordinator.fn_press()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.RECORDING)
+        self.coordinator.refresh_setup()
+        self.coordinator.refresh_setup()
+        self.coordinator.fn_release()
+        wait_for(lambda: self.coordinator.snapshot.state is AppState.IDLE)
+        self.assertEqual(self.inserter.inserted[0][0], "hello world")
+
     def test_insert_failure_copies_and_keeps_persistent_recovery(self):
         self.inserter.fail = True
         self.coordinator.fn_press()
@@ -590,6 +602,35 @@ class CoordinatorIntegrationTests(unittest.TestCase):
         wait_for(lambda: self.coordinator.file_result == "hello world")
         self.assertEqual(self.inserter.inserted, [])
         self.assertTrue(self.coordinator.snapshot.has_last_transcript)
+
+
+class CoordinatorAccessibilityRequestTests(unittest.TestCase):
+    def _start(self, accessibility):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        permissions = FakePermissions()
+        permissions.accessibility = accessibility
+        coordinator = AppCoordinator(
+            audio=FakeAudio(temp.name),
+            transcriber=FakeTranscriber(),
+            inserter=FakeInserter(),
+            hotkey=FakeHotkey(),
+            permissions=permissions,
+            transcript_store=FakeTranscriptStore(),
+            tap_max_hold=0,
+            temp_dir=Path(temp.name),
+        )
+        self.addCleanup(coordinator.shutdown)
+        coordinator.start()
+        return permissions
+
+    def test_requests_accessibility_at_launch_when_missing(self):
+        permissions = self._start(PermissionState.DENIED)
+        self.assertEqual(getattr(permissions, "accessibility_requests", 0), 1)
+
+    def test_skips_accessibility_request_when_granted(self):
+        permissions = self._start(PermissionState.GRANTED)
+        self.assertEqual(getattr(permissions, "accessibility_requests", 0), 0)
 
 
 class CoordinatorWritingTests(unittest.TestCase):

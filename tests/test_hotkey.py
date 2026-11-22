@@ -7,6 +7,8 @@ import Quartz
 from fvt.hotkey import (
     F13_KEYCODE,
     FN_FLAG,
+    LEFT_CONTROL_FLAG,
+    RIGHT_CONTROL_FLAG,
     RIGHT_OPTION_FLAG,
     SPACE_KEYCODE,
     FnListener,
@@ -122,6 +124,26 @@ class HotkeyTests(unittest.TestCase):
             listener._callback(None, Quartz.kCGEventFlagsChanged, event, None)
         self.assertEqual(actions, ["press"])
 
+    def test_left_control_ignores_right_control_and_tracks_press_and_release(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="left-control")
+        actions = []
+        listener._dispatch = actions.append
+        event = object()
+
+        for flags in (
+            RIGHT_CONTROL_FLAG,
+            RIGHT_CONTROL_FLAG | LEFT_CONTROL_FLAG,
+            RIGHT_CONTROL_FLAG,
+            0,
+        ):
+            with patch.object(Quartz, "CGEventGetFlags", return_value=flags):
+                self.assertIs(
+                    listener._callback(None, Quartz.kCGEventFlagsChanged, event, None),
+                    event,
+                )
+
+        self.assertEqual(actions, ["press", "release"])
+
     def _f13_keydown(self, listener, *, repeat):
         def field(_event, requested):
             if requested == Quartz.kCGKeyboardEventAutorepeat:
@@ -157,6 +179,38 @@ class HotkeyTests(unittest.TestCase):
         self.assertEqual(listener.record_key, "fn")
         listener.set_record_key("f13")
         self.assertEqual(listener.record_key, "f13")
+
+    def test_uses_listen_only_tap_without_full_accessibility(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="left-control")
+        with (
+            patch.object(Quartz, "CGPreflightPostEventAccess", return_value=False),
+            patch.object(Quartz, "CGEventTapCreate", return_value=None) as create,
+        ):
+            listener._create_tap()
+        self.assertTrue(listener.listen_only)
+        self.assertEqual(create.call_args.args[2], Quartz.kCGEventTapOptionListenOnly)
+
+    def test_uses_filtering_tap_with_full_accessibility(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="left-control")
+        with (
+            patch.object(Quartz, "CGPreflightPostEventAccess", return_value=True),
+            patch.object(Quartz, "CGEventTapCreate", return_value=None) as create,
+        ):
+            listener._create_tap()
+        self.assertFalse(listener.listen_only)
+        self.assertEqual(create.call_args.args[2], Quartz.kCGEventTapOptionDefault)
+
+    def test_reports_input_monitoring_when_listen_only_tap_fails(self):
+        listener = FnListener(lambda: None, lambda: None, record_key="left-control")
+        with (
+            patch.object(Quartz, "CGPreflightPostEventAccess", return_value=False),
+            patch.object(Quartz, "CGEventTapCreate", return_value=None),
+            patch.object(Quartz, "CGPreflightListenEventAccess", return_value=False),
+            patch.object(Quartz, "CGRequestListenEventAccess") as request,
+        ):
+            self.assertFalse(listener.start())
+        request.assert_called_once()
+        self.assertIn("Input Monitoring", listener.last_error)
 
 
 if __name__ == "__main__":

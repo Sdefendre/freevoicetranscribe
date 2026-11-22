@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from .contracts import ScreenFrame
 from .models import DEFAULT_PROFILE_ID
+
+_logger = logging.getLogger("freevoicetranscribe.state")
 
 
 class AppState(StrEnum):
@@ -177,6 +180,9 @@ class StateStore:
                 f"Illegal application transition: {current} -> {state}"
             )
         self._snapshot = replace(self._snapshot, state=state, **changes)
+        if state is not current:
+            # Titles are fixed UI strings; details can name apps, so skip them.
+            _logger.info("State %s -> %s: %s", current, state, self._snapshot.title)
         return self._snapshot
 
     def update(self, **changes) -> AppSnapshot:
