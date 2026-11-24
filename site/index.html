@@ -77,9 +77,9 @@
           </div>
           <ul class="fact-pills" aria-label="Key facts">
             <li>Apple Silicon only</li>
+            <li>macOS 14+</li>
             <li>100% local processing</li>
             <li>Free &amp; MIT licensed</li>
-            <li>No signed download yet</li>
           </ul>
         </div>
 
@@ -445,13 +445,15 @@ cd freevoicetranscribe</code></pre>
             </div>
           </details>
           <details>
-            <summary>Can I download it now?<span aria-hidden="true"></span></summary>
+            <summary>Is there a prebuilt .app download?<span aria-hidden="true"></span></summary>
             <div class="answer">
               <p>
-                Not as a packaged app yet. A public build still needs
-                Developer ID distribution signing and Apple notarization.
-                You can run it from source today; see
-                <a href="#install">Install from source</a>.
+                No. FreeVoiceTranscribe is distributed as open-source software
+                to run from source — clone the repository and run
+                <code>./run.sh</code>; see
+                <a href="#install">Run it from source</a>. An optional
+                <code>./build_app.sh</code> script is included if you want to
+                build a local <code>.app</code> bundle yourself.
               </p>
             </div>
           </details>
@@ -477,7 +479,7 @@ cd freevoicetranscribe</code></pre>
               View on GitHub
             </a>
           </div>
-          <p class="final-note">Apple Silicon · macOS 14+ · Public distribution build pending</p>
+          <p class="final-note">Apple Silicon · macOS 14+ · Open source (MIT)</p>
         </div>
       </section>
     </main>

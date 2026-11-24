@@ -60,9 +60,9 @@ first failure first.
 
 ## Releases
 
-This project uses GitHub Releases and signed macOS artifacts when possible.
-Source contributors should not change the build scripts or bundle metadata
-without discussion.
+This project publishes tagged open-source releases through GitHub Releases.
+Source contributors should not change the optional build scripts or bundle
+metadata without discussion.
 
 ## Questions?
 

@@ -6,8 +6,6 @@ FreeVoiceTranscribe is free, open-source software released under the [MIT licens
 
 **Website:** https://sdefendre.github.io/freevoicetranscribe/
 
-> **Status:** there is no packaged download or GitHub release yet. A public build still needs Developer ID signing and Apple notarization. Run it from source with the steps below.
-
 ![FreeVoiceTranscribe landing page](docs/assets/landing-page.png)
 
 ## What it does
@@ -192,9 +190,9 @@ Application directories are created with private permissions when the filesystem
 
 Use **Send Feedback** in the menu bar. It opens a prefilled GitHub issue with your app version and a short bug report form. You can also open issues directly at https://github.com/Sdefendre/freevoicetranscribe/issues/new.
 
-## Build the macOS app
+## Build a local macOS app (optional)
 
-The release script creates or refreshes `.build-venv` from `requirements-build.lock`, builds in a staging directory with `py2app`, signs the staged app, verifies it, and publishes only a passing artifact:
+FreeVoiceTranscribe is distributed as open-source software to run from source. If you want a local `.app` bundle on your own Mac, the optional build script creates or refreshes `.build-venv` from `requirements-build.lock`, builds in a staging directory with `py2app`, signs the staged app, verifies it, and publishes only a passing artifact:
 
 ```bash
 ./build_app.sh
@@ -242,7 +240,7 @@ Before publishing to `dist/`, the build verifies:
 
 The smoke tests do not request Microphone or Accessibility access.
 
-Developer ID signing alone is not a public release. Distribution still requires appropriate entitlements and hardened-runtime review, Apple notarization, stapling, Gatekeeper validation, and testing on a clean supported Mac.
+FreeVoiceTranscribe does not ship a prebuilt signed download. If you package it yourself for distribution to other Macs, Apple requires Developer ID signing, appropriate entitlements and hardened-runtime review, notarization, stapling, and Gatekeeper validation.
 
 ## Development
 
