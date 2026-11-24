@@ -17,6 +17,7 @@ FN_FLAG = 0x800000
 # Device-dependent bits from IOKit so left and right modifiers stay distinct.
 RIGHT_COMMAND_FLAG = 0x00000010
 RIGHT_OPTION_FLAG = 0x00000040
+LEFT_CONTROL_FLAG = 0x00000001
 RIGHT_CONTROL_FLAG = 0x00002000
 SPACE_KEYCODE = 49
 ESCAPE_KEYCODE = 53
@@ -35,6 +36,7 @@ _RECORD_KEY_SPECS = {
     "right-option": _RecordKeySpec(flag=RIGHT_OPTION_FLAG),
     "right-command": _RecordKeySpec(flag=RIGHT_COMMAND_FLAG),
     "right-control": _RecordKeySpec(flag=RIGHT_CONTROL_FLAG),
+    "left-control": _RecordKeySpec(flag=LEFT_CONTROL_FLAG),
     "f13": _RecordKeySpec(keycode=F13_KEYCODE),
 }
 
@@ -71,6 +73,7 @@ class FnListener:
         self._tap_thread: threading.Thread | None = None
         self._run_loop = None
         self._tap = None
+        self.listen_only = False
         self._source = None
         self._ready = threading.Event()
         self._running = threading.Event()
@@ -114,6 +117,7 @@ class FnListener:
             action = self._events.get()
             if action is None:
                 return
+            self._logger.info("Shortcut %s", action)
             try:
                 if action == "press":
                     self.on_press()
@@ -187,14 +191,38 @@ class FnListener:
             | Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown)
             | Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp)
         )
+        # Swallowing keys needs full Accessibility. Per-app grants (macOS 27.3
+        # System & App Protection Override) only allow a listen-only tap,
+        # which needs Input Monitoring; without it macOS reports held keys
+        # as released.
+        self.listen_only = not self._can_filter_events()
         return Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
             Quartz.kCGHeadInsertEventTap,
-            Quartz.kCGEventTapOptionDefault,
+            (
+                Quartz.kCGEventTapOptionListenOnly
+                if self.listen_only
+                else Quartz.kCGEventTapOptionDefault
+            ),
             mask,
             self._callback,
             None,
         )
+
+    @staticmethod
+    def _can_filter_events() -> bool:
+        try:
+            return bool(Quartz.CGPreflightPostEventAccess())
+        except Exception:
+            return True
+
+    @staticmethod
+    def _request_listen_access() -> None:
+        try:
+            if not Quartz.CGPreflightListenEventAccess():
+                Quartz.CGRequestListenEventAccess()
+        except Exception:
+            pass
 
     def _run_tap(self) -> None:
         try:
@@ -210,6 +238,10 @@ class FnListener:
             Quartz.CGEventTapEnable(self._tap, True)
             self._running.set()
             self._ready.set()
+            self._logger.info(
+                "Shortcut listener started (%s)",
+                "listen-only" if self.listen_only else "filtering",
+            )
             Quartz.CFRunLoopRun()
         except Exception as exc:
             self.last_error = f"The global shortcut could not start: {exc}"
@@ -240,9 +272,13 @@ class FnListener:
             self._ready = threading.Event()
             self._running = threading.Event()
             self._tap = self._create_tap()
+            if self.listen_only:
+                self._request_listen_access()
             if self._tap is None:
                 self.last_error = (
-                    "Accessibility access is required for the hold-to-talk shortcut."
+                    "Input Monitoring access is required for the hold-to-talk shortcut."
+                    if self.listen_only
+                    else "Accessibility access is required for the hold-to-talk shortcut."
                 )
                 return False
             self._worker_thread = threading.Thread(

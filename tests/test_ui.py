@@ -238,6 +238,18 @@ class NativeUITests(unittest.TestCase):
             self.assertLessEqual(frame.size.width, HUD_WIDTH)
             self.assertLessEqual(frame.size.height, HUD_HEIGHT)
 
+    def test_idle_hud_is_compact_and_does_not_intercept_clicks(self):
+        hud = RecordingHUD.alloc().initWithCallbacks_({})
+        screen = ScreenFrame(x=0, y=0, width=1280, height=800)
+        with patch("fvt.ui._post_accessibility_announcement") as announce:
+            hud.update(AppSnapshot(state=AppState.IDLE, target_screen=screen))
+        self.assertTrue(hud._panel.isVisible())
+        self.assertTrue(hud._panel.ignoresMouseEvents())
+        self.assertEqual(hud._panel.frame().size.width, 44)
+        self.assertEqual(hud._panel.frame().size.height, 10)
+        announce.assert_not_called()
+        hud._hide()
+
     def test_hud_announces_each_visible_state_change_once(self):
         hud = RecordingHUD.alloc().initWithCallbacks_(
             {"setup": lambda: None, "dismiss": lambda: None}

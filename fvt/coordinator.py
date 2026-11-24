@@ -296,6 +296,8 @@ class AppCoordinator:
             )
             self._thread.start()
             self._events.put(Event(EventType.START))
+        if self.permissions.accessibility_state() is not PermissionState.GRANTED:
+            self.permissions.request_accessibility()
 
     def submit(self, kind: EventType, payload: object | None = None) -> None:
         with self._lifecycle_lock:
@@ -587,6 +589,8 @@ class AppCoordinator:
                         "Failed hotkey startup cleanup failed", exc_info=True
                     )
 
+        # The menu refreshes every second; a healthy refresh must not end a
+        # recording. Permission loss is handled above.
         active = state in {
             AppState.RECORDING,
             AppState.TRANSCRIBING,
@@ -1114,7 +1118,9 @@ class AppCoordinator:
                 on_limit=lambda: self.submit(EventType.AUDIO_LIMIT),
             )
         except Exception as exc:
-            self._logger.warning("Recording could not start: %s", type(exc).__name__)
+            self._logger.warning(
+                "Recording could not start: %s: %s", type(exc).__name__, exc
+            )
             self._target = None
             self._selected_text = ""
             self._require_selection_match = False

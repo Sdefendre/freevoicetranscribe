@@ -14,6 +14,25 @@ from .state import PermissionState
 
 _AV_MEDIA_TYPE_AUDIO = "soun"
 
+# The framework is loaded directly, so PyObjC has no metadata for this block.
+objc.registerMetaDataForSelector(
+    b"AVCaptureDevice",
+    b"requestAccessForMediaType:completionHandler:",
+    {
+        "arguments": {
+            3: {
+                "callable": {
+                    "retval": {"type": b"v"},
+                    "arguments": {
+                        0: {"type": b"^v"},
+                        1: {"type": objc._C_NSBOOL},
+                    },
+                },
+            },
+        },
+    },
+)
+
 
 def _load_capture_device_class():
     try:
@@ -22,26 +41,14 @@ def _load_capture_device_class():
         )
         if bundle is not None:
             bundle.load()
-        objc.registerMetaDataForSelector(
-            b"AVCaptureDevice",
-            b"requestAccessForMediaType:completionHandler:",
-            {
-                "arguments": {
-                    3: {
-                        "callable": {
-                            "retval": {"type": b"v"},
-                            "arguments": {
-                                0: {"type": b"^v"},
-                                1: {"type": objc._C_NSBOOL},
-                            },
-                        }
-                    }
-                }
-            },
-        )
         return objc.lookUpClass("AVCaptureDevice")
     except Exception:
         return None
+
+
+def _prompt_for_accessibility() -> bool:
+    options = {ApplicationServices.kAXTrustedCheckOptionPrompt: True}
+    return bool(ApplicationServices.AXIsProcessTrustedWithOptions(options))
 
 
 class MacPermissionService:
@@ -50,11 +57,13 @@ class MacPermissionService:
         *,
         capture_device=None,
         ax_trusted: Callable[[], bool] | None = None,
+        ax_prompt: Callable[[], object] | None = None,
         workspace=None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._capture_device = capture_device or _load_capture_device_class()
         self._ax_trusted = ax_trusted or ApplicationServices.AXIsProcessTrusted
+        self._ax_prompt = ax_prompt or _prompt_for_accessibility
         self._workspace = workspace or AppKit.NSWorkspace.sharedWorkspace()
         self._logger = logger or logging.getLogger("freevoicetranscribe.permissions")
 
@@ -106,11 +115,20 @@ class MacPermissionService:
                 lambda granted: callback(bool(granted)),
             )
         except Exception:
-            self._logger.debug("Microphone permission request failed", exc_info=True)
+            self._logger.warning("Microphone permission request failed", exc_info=True)
             self.open_microphone_settings()
             callback(False)
 
+    def request_accessibility(self) -> None:
+        # Settings only lists apps that have asked for trust, so the app is
+        # missing from the list until this runs.
+        try:
+            self._ax_prompt()
+        except Exception:
+            self._logger.warning("Accessibility trust request failed", exc_info=True)
+
     def open_accessibility_settings(self) -> None:
+        self.request_accessibility()
         self._open_settings("Privacy_Accessibility")
 
     def open_microphone_settings(self) -> None:

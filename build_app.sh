@@ -177,6 +177,15 @@ if [ -n "${CODESIGN_IDENTITY:-}" ]; then
     codesign --force --deep --options runtime --timestamp \
         --sign "$CODESIGN_IDENTITY" "$STAGING_APP"
     SIGNING_DESCRIPTION="Developer ID identity: $CODESIGN_IDENTITY"
+elif security find-identity -p codesigning 2>/dev/null \
+    | grep -q "\"${LOCAL_CODESIGN_IDENTITY:=FreeVoiceTranscribe Local Signing}\""; then
+    # A self-signed identity keeps the designated requirement stable across
+    # rebuilds, so macOS privacy grants survive. It cannot take a secure
+    # timestamp, and hardened runtime would need audio-input entitlements.
+    codesign --force --sign "$LOCAL_CODESIGN_IDENTITY" "$OPENMP_DESTINATION"
+    codesign --force --sign "$LOCAL_CODESIGN_IDENTITY" "$OPENMP_EXTENSION"
+    codesign --force --deep --sign "$LOCAL_CODESIGN_IDENTITY" "$STAGING_APP"
+    SIGNING_DESCRIPTION="local identity: $LOCAL_CODESIGN_IDENTITY"
 else
     codesign --force --sign - "$OPENMP_DESTINATION"
     codesign --force --sign - "$OPENMP_EXTENSION"

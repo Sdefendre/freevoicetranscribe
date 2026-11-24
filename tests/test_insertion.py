@@ -198,6 +198,19 @@ class InsertionTests(unittest.TestCase):
         self.assertEqual(clipboard.contents, "original")
         self.assertFalse(clipboard.restored)
 
+    def test_pastes_into_frontmost_app_when_field_is_not_readable(self):
+        app = FakeApplication()
+        clipboard = FakeClipboard()
+        pasted = []
+        service, accessibility = self._service(
+            app, clipboard, FakeKeyboard(lambda: pasted.append(clipboard.contents))
+        )
+        accessibility.focused = None
+        target = self._capture(service)
+        result = service.insert("hello", target)
+        self.assertEqual(pasted, ["hello"])
+        self.assertTrue(result.clipboard_restored)
+
     def test_capture_uses_target_window_display(self):
         service, _accessibility = self._service(
             FakeApplication(), FakeClipboard(), FakeKeyboard()

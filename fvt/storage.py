@@ -16,13 +16,21 @@ from .models import DEFAULT_PROFILE_ID, normalize_profile
 APP_DIR_NAME = "FreeVoiceTranscribe"
 
 # Push-to-talk keys that Settings may store. Detection for each id lives in hotkey.py.
-RECORD_KEY_IDS = ("fn", "right-option", "right-command", "right-control", "f13")
+RECORD_KEY_IDS = (
+    "fn",
+    "right-option",
+    "right-command",
+    "right-control",
+    "left-control",
+    "f13",
+)
 
 RECORD_KEY_LABELS = {
     "fn": "fn",
     "right-option": "right option",
     "right-command": "right command",
     "right-control": "right control",
+    "left-control": "left control",
     "f13": "F13",
 }
 
@@ -31,6 +39,7 @@ RECORD_KEY_MENU_LABELS = {
     "right-option": "Right Option",
     "right-command": "Right Command",
     "right-control": "Right Control",
+    "left-control": "Left Control",
     "f13": "F13",
 }
 
