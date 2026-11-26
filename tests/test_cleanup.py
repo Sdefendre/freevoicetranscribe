@@ -178,6 +178,15 @@ class LocalTextCleanerTests(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 1.0)
             self.assertEqual(downloads[0][1], DEFAULT_WRITING_MODEL_REVISION)
 
+    def test_zero_byte_weight_file_is_not_considered_present(self):
+        with tempfile.TemporaryDirectory() as temp:
+            service = LocalTextCleaner(self._paths(Path(temp)))
+            service.model_dir.mkdir(parents=True)
+            (service.model_dir / "config.json").write_text("{}")
+            (service.model_dir / "tokenizer.json").write_text("{}")
+            (service.model_dir / "model.safetensors").write_bytes(b"")
+            self.assertFalse(service.model_present)
+
 
 if __name__ == "__main__":
     unittest.main()

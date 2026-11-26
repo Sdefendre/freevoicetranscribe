@@ -223,9 +223,11 @@ class AppCoordinator:
         self._writing_prepare_id = 0
         self._require_selection_match = False
         self._dictation_mode = DictationMode.DICTATE
+        self._recording_mode = DictationMode.DICTATE
         self._app_tones = dict(DEFAULT_APP_TONES)
         self._selected_text = ""
         self._load_writing_preferences()
+        self._recording_mode = self._dictation_mode
         self._hotkey_started = False
         self._hands_free = False
         self._target: TargetApp | None = None
@@ -250,6 +252,7 @@ class AppCoordinator:
                 )
                 self._record_key = "fn"
         self._file_cancel = threading.Event()
+        self._file_job_id = 0
         self._file_result = ""
 
     @property
@@ -303,10 +306,10 @@ class AppCoordinator:
             self._events.put(Event(kind, payload))
 
     def fn_press(self) -> None:
-        self.submit(EventType.FN_PRESS)
+        self.submit(EventType.FN_PRESS, time.monotonic())
 
     def fn_release(self) -> None:
-        self.submit(EventType.FN_RELEASE)
+        self.submit(EventType.FN_RELEASE, time.monotonic())
 
     def fn_space(self) -> None:
         self.submit(EventType.FN_SPACE)
@@ -511,8 +514,9 @@ class AppCoordinator:
         )
 
     def _refresh_readiness(self, _payload=None) -> None:
+        previous = self._store.snapshot
         readiness = self._readiness()
-        state = self._store.snapshot.state
+        state = previous.state
 
         if self._hotkey_started and not self._hotkey_is_healthy():
             try:
@@ -555,6 +559,8 @@ class AppCoordinator:
             self._awaiting_double_tap = False
             self._hands_free = False
             self._target = None
+            self._selected_text = ""
+            self._require_selection_match = False
             self._store.transition(
                 AppState.IDLE,
                 title="Recording cancelled",
@@ -598,20 +604,28 @@ class AppCoordinator:
                 dictation_mode=self._dictation_mode,
                 **self._writing_fields(),
             )
-            self._publish()
+            if self._store.snapshot != previous:
+                self._publish()
             return
 
         if readiness.ready and self._hotkey_started:
-            self._store.transition(
-                AppState.IDLE,
-                title="Ready",
-                detail=self._ready_detail(),
-                readiness=readiness,
-                error_action=None,
-                hands_free=False,
-                dictation_mode=self._dictation_mode,
-                **self._writing_fields(),
-            )
+            if state in {AppState.IDLE, AppState.ERROR}:
+                self._store.update(
+                    readiness=readiness,
+                    dictation_mode=self._dictation_mode,
+                    **self._writing_fields(),
+                )
+            else:
+                self._store.transition(
+                    AppState.IDLE,
+                    title="Ready",
+                    detail=self._ready_detail(),
+                    readiness=readiness,
+                    error_action=None,
+                    hands_free=False,
+                    dictation_mode=self._dictation_mode,
+                    **self._writing_fields(),
+                )
         elif readiness.ready:
             self._store.transition(
                 AppState.SETUP_REQUIRED,
@@ -620,18 +634,37 @@ class AppCoordinator:
                 readiness=readiness,
                 error_action="setup",
                 hands_free=False,
+                dictation_mode=self._dictation_mode,
+                **self._writing_fields(),
             )
         else:
-            title, detail, action = self._setup_message(readiness)
-            self._store.transition(
-                AppState.SETUP_REQUIRED,
-                title=title,
-                detail=detail,
-                readiness=readiness,
-                error_action=action,
-                hands_free=False,
+            preserve_setup_status = (
+                state is AppState.SETUP_REQUIRED
+                and readiness == previous.readiness
+                and (
+                    self._model_busy
+                    or previous.title == "Speech model could not be prepared"
+                )
             )
-        self._publish()
+            if preserve_setup_status:
+                self._store.update(
+                    dictation_mode=self._dictation_mode,
+                    **self._writing_fields(),
+                )
+            else:
+                title, detail, action = self._setup_message(readiness)
+                self._store.transition(
+                    AppState.SETUP_REQUIRED,
+                    title=title,
+                    detail=detail,
+                    readiness=readiness,
+                    error_action=action,
+                    hands_free=False,
+                    dictation_mode=self._dictation_mode,
+                    **self._writing_fields(),
+                )
+        if self._store.snapshot != previous:
+            self._publish()
 
     def _hotkey_is_healthy(self) -> bool:
         try:
@@ -678,7 +711,13 @@ class AppCoordinator:
         )
 
     def _prepare_model(self, *, allow_download: bool) -> None:
-        if self._model_busy:
+        if self._model_busy or self._store.snapshot.state in {
+            AppState.RECORDING,
+            AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
+            AppState.INSERTING,
+            AppState.SHUTTING_DOWN,
+        }:
             return
         self._model_busy = True
         self._refresh_readiness()
@@ -718,7 +757,9 @@ class AppCoordinator:
         if self._model_busy or state in {
             AppState.RECORDING,
             AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
             AppState.INSERTING,
+            AppState.SHUTTING_DOWN,
         }:
             self._publish()
             return
@@ -768,7 +809,9 @@ class AppCoordinator:
     def _prepare_writing_model(self, *, allow_download: bool) -> None:
         if self.cleaner is None or self._writing_model_busy:
             return
-        self._writing_cancel.clear()
+        cancel_event = threading.Event()
+        with self._lifecycle_lock:
+            self._writing_cancel = cancel_event
         self._writing_prepare_id += 1
         prepare_id = self._writing_prepare_id
         self._writing_model_busy = True
@@ -780,9 +823,9 @@ class AppCoordinator:
                 kwargs = {
                     "allow_download": allow_download,
                     "on_status": lambda text: self.submit(
-                        EventType.WRITING_MODEL_STATUS, text
+                        EventType.WRITING_MODEL_STATUS, (prepare_id, text)
                     ),
-                    "cancel_event": self._writing_cancel,
+                    "cancel_event": cancel_event,
                 }
                 if allow_download:
                     kwargs["timeout_seconds"] = self._writing_download_timeout
@@ -794,7 +837,8 @@ class AppCoordinator:
         self._executor.submit(worker)
 
     def _cancel_writing_model(self, _payload=None) -> None:
-        self._writing_cancel.set()
+        with self._lifecycle_lock:
+            self._writing_cancel.set()
         self._writing_prepare_id += 1
         self._writing_model_busy = False
         if self._store.snapshot.state is AppState.IDLE:
@@ -809,6 +853,13 @@ class AppCoordinator:
         self._publish()
 
     def _writing_model_status(self, payload) -> None:
+        prepare_id, text = (
+            payload
+            if isinstance(payload, tuple) and len(payload) == 2
+            else (None, payload)
+        )
+        if prepare_id is not None and prepare_id != self._writing_prepare_id:
+            return
         if self._store.snapshot.state in {
             AppState.RECORDING,
             AppState.TRANSCRIBING,
@@ -820,7 +871,7 @@ class AppCoordinator:
             self._publish()
             return
         self._store.update(
-            title=str(payload or "Preparing writing model"),
+            title=str(text or "Preparing writing model"),
             detail="Keep the app open. Text stays on this Mac.",
             **self._writing_fields(),
         )
@@ -898,6 +949,14 @@ class AppCoordinator:
         self._publish()
 
     def _model_status(self, payload) -> None:
+        if self._closing or self._store.snapshot.state in {
+            AppState.RECORDING,
+            AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
+            AppState.INSERTING,
+            AppState.SHUTTING_DOWN,
+        }:
+            return
         text = "Preparing speech model"
         progress = None
         if isinstance(payload, dict):
@@ -929,6 +988,16 @@ class AppCoordinator:
         self._model_busy = False
         self._download_progress = None
         self._logger.warning("Model setup failed: %s", type(payload).__name__)
+        if self._closing or self._store.snapshot.state in {
+            AppState.RECORDING,
+            AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
+            AppState.INSERTING,
+            AppState.SHUTTING_DOWN,
+        }:
+            self._store.update(readiness=self._readiness())
+            self._publish()
+            return
         readiness = self._readiness()
         self._store.transition(
             AppState.SETUP_REQUIRED,
@@ -966,7 +1035,7 @@ class AppCoordinator:
         self._double_tap_timer = timer
         timer.start()
 
-    def _fn_press(self, _payload=None) -> None:
+    def _fn_press(self, payload=None) -> None:
         self._cancel_double_tap_timeout()
         state = self._store.snapshot.state
         if state is AppState.RECORDING:
@@ -1004,7 +1073,9 @@ class AppCoordinator:
                 readiness=readiness,
                 error_action=None,
             )
-        self._press_started_at = time.monotonic()
+        self._press_started_at = (
+            float(payload) if isinstance(payload, (int, float)) else time.monotonic()
+        )
         self._begin_recording()
 
     def _begin_recording(self) -> None:
@@ -1017,10 +1088,13 @@ class AppCoordinator:
             )
             return
         self._target = target
-        if self._dictation_mode is DictationMode.COMMAND:
+        self._recording_mode = self._dictation_mode
+        if self._recording_mode is DictationMode.COMMAND:
             selected = self._read_selected_text(target)
             if not selected:
                 self._target = None
+                self._selected_text = ""
+                self._require_selection_match = False
                 self._set_error(
                     "Select text to rewrite",
                     f"Highlight the text in the other app, then hold {self._hotkey_label()} and speak an instruction.",
@@ -1048,6 +1122,8 @@ class AppCoordinator:
                 "Recording could not start: %s: %s", type(exc).__name__, exc
             )
             self._target = None
+            self._selected_text = ""
+            self._require_selection_match = False
             self._set_error(
                 "Couldn’t start the microphone",
                 "Check Microphone access and the selected input device.",
@@ -1071,10 +1147,13 @@ class AppCoordinator:
         if observer is not None:
             observer(samples)
 
-    def _fn_release(self, _payload=None) -> None:
+    def _fn_release(self, payload=None) -> None:
         if self._store.snapshot.state is not AppState.RECORDING or self._hands_free:
             return
-        hold = time.monotonic() - self._press_started_at
+        released_at = (
+            float(payload) if isinstance(payload, (int, float)) else time.monotonic()
+        )
+        hold = max(0.0, released_at - self._press_started_at)
         if self._tap_max_hold > 0 and hold <= self._tap_max_hold:
             # Wait from this release so a second tap can lock recording.
             self._awaiting_double_tap = True
@@ -1150,6 +1229,9 @@ class AppCoordinator:
             captured = self.audio.stop()
         except Exception as exc:
             self._logger.warning("Recording could not finish: %s", type(exc).__name__)
+            self._target = None
+            self._selected_text = ""
+            self._require_selection_match = False
             stopping = bool(getattr(self.audio, "is_stopping", False))
             self._set_error(
                 "Recording is still stopping"
@@ -1163,6 +1245,9 @@ class AppCoordinator:
             return
         if captured.duration_seconds < self._min_audio_seconds:
             captured.cleanup()
+            self._target = None
+            self._selected_text = ""
+            self._require_selection_match = False
             self._set_error(
                 "I didn’t hear enough audio",
                 f"Hold {self._hotkey_label()} a little longer and try again.",
@@ -1177,13 +1262,14 @@ class AppCoordinator:
             hands_free=False,
         )
         self._publish()
-        self._executor.submit(
+        if not self._executor.submit(
             self._transcribe_worker,
             captured,
-            self._dictation_mode,
+            self._recording_mode,
             self._tone_for(self._target),
             self._selected_text,
-        )
+        ):
+            captured.cleanup()
 
     def _transcribe_worker(
         self,
@@ -1200,10 +1286,21 @@ class AppCoordinator:
             return
         captured.cleanup()
         text = str(text).strip()
-        if not text or mode is DictationMode.DICTATE or self.cleaner is None:
+        if not text or mode is DictationMode.DICTATE:
             self.submit(EventType.TRANSCRIPTION_RESULT, (text, None))
             return
-        if not getattr(self.cleaner, "is_ready", False):
+        if self.cleaner is None or not getattr(self.cleaner, "is_ready", False):
+            if mode is DictationMode.COMMAND:
+                self.submit(
+                    EventType.TRANSCRIPTION_RESULT,
+                    (
+                        text,
+                        CommandCleanupError(
+                            "The writing model is not ready. Download it in Settings. Your selected text was left unchanged."
+                        ),
+                    ),
+                )
+                return
             self.submit(EventType.TRANSCRIPTION_RESULT, (text, None))
             return
         self.submit(EventType.CLEANUP_STATUS, self._cleanup_title(mode))
@@ -1251,6 +1348,8 @@ class AppCoordinator:
         self._publish()
 
     def _transcription_result(self, payload) -> None:
+        if self._closing or self._store.snapshot.state is not AppState.TRANSCRIBING:
+            return
         text, error = payload
         if isinstance(error, CommandCleanupError):
             self._last_transcript = str(text).strip()
@@ -1264,11 +1363,15 @@ class AppCoordinator:
                 self._store.update(has_last_transcript=True)
             self._copy_after_insert_failure(
                 text,
-                "The writing model could not rewrite the selection. Your selected text was left unchanged.",
+                str(error)
+                or "The writing model could not rewrite the selection. Your selected text was left unchanged.",
             )
             return
         if error is not None:
             self._logger.warning("Transcription failed: %s", type(error).__name__)
+            self._target = None
+            self._selected_text = ""
+            self._require_selection_match = False
             self._set_error(
                 "Couldn’t transcribe that recording",
                 "The audio was deleted. Try again.",
@@ -1277,6 +1380,9 @@ class AppCoordinator:
             return
         text = str(text).strip()
         if not text:
+            self._target = None
+            self._selected_text = ""
+            self._require_selection_match = False
             self._set_error(
                 "I didn’t hear speech",
                 "Try speaking closer to the microphone.",
@@ -1301,17 +1407,23 @@ class AppCoordinator:
                 "Typing access changed. The transcript was copied instead.",
             )
             return
-        self._insert_text(text, self._target)
+        expected_selection = (
+            self._selected_text if self._require_selection_match else None
+        )
+        self._insert_text(text, self._target, expected_selection=expected_selection)
 
-    def _insert_text(self, text: str, target: TargetApp | None) -> None:
+    def _insert_text(
+        self,
+        text: str,
+        target: TargetApp | None,
+        *,
+        expected_selection: str | None = None,
+    ) -> None:
         if target is None:
             self._copy_after_insert_failure(
                 text, "The original app is no longer available."
             )
             return
-        expected_selection = (
-            self._selected_text if self._require_selection_match else None
-        )
         try:
             result = self.inserter.insert(
                 text, target, expected_selection=expected_selection
@@ -1339,16 +1451,7 @@ class AppCoordinator:
                 action="dismiss",
             )
             return
-        self._store.transition(
-            AppState.IDLE,
-            title="Ready",
-            detail=self._ready_detail(),
-            hands_free=False,
-            has_last_transcript=True,
-            error_action=None,
-            target_screen=None,
-        )
-        self._publish()
+        self._return_to_ready("Ready")
 
     def _copy_after_insert_failure(self, text: str, detail: str) -> None:
         copied = False
@@ -1409,6 +1512,7 @@ class AppCoordinator:
         path = Path(payload)
         state = self._store.snapshot.state
         if state in {
+            AppState.BOOTING,
             AppState.RECORDING,
             AppState.TRANSCRIBING,
             AppState.FILE_TRANSCRIBING,
@@ -1428,8 +1532,11 @@ class AppCoordinator:
             )
             return
 
+        cancel_event = threading.Event()
         with self._lifecycle_lock:
-            self._file_cancel.clear()
+            self._file_cancel = cancel_event
+            self._file_job_id += 1
+            job_id = self._file_job_id
         self._file_result = ""
         if state is AppState.ERROR:
             self._store.transition(AppState.IDLE)
@@ -1443,47 +1550,55 @@ class AppCoordinator:
             error_action=None,
         )
         self._publish()
-        self._executor.submit(self._file_transcribe_worker, path)
+        self._executor.submit(self._file_transcribe_worker, path, job_id, cancel_event)
 
-    def _file_transcribe_worker(self, path: Path) -> None:
+    def _file_transcribe_worker(
+        self, path: Path, job_id: int, cancel_event: threading.Event
+    ) -> None:
         try:
             samples = load_mono_16k(
                 path,
                 temp_dir=self._temp_dir,
-                cancel_event=self._file_cancel,
+                cancel_event=cancel_event,
             )
-            if self._file_cancel.is_set():
-                self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+            if cancel_event.is_set():
+                self.submit(
+                    EventType.FILE_TRANSCRIPTION_RESULT, (job_id, "", None, True)
+                )
                 return
             chunks = chunk_samples(samples)
             if not chunks:
                 self.submit(
                     EventType.FILE_TRANSCRIPTION_RESULT,
-                    ("", AudioFileError("The audio file was empty."), False),
+                    (job_id, "", AudioFileError("The audio file was empty."), False),
                 )
                 return
             parts: list[str] = []
             total = len(chunks)
             for index, chunk in enumerate(chunks, start=1):
-                if self._file_cancel.is_set():
-                    self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+                if cancel_event.is_set():
+                    self.submit(
+                        EventType.FILE_TRANSCRIPTION_RESULT, (job_id, "", None, True)
+                    )
                     return
                 self.submit(
                     EventType.FILE_TRANSCRIPTION_PROGRESS,
-                    (path.name, index, total),
+                    (job_id, path.name, index, total),
                 )
                 parts.append(self._transcribe_file_chunk(chunk))
             self.submit(
                 EventType.FILE_TRANSCRIPTION_RESULT,
-                (join_transcripts(parts), None, False),
+                (job_id, join_transcripts(parts), None, False),
             )
         except AudioFileCancelled:
-            self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+            self.submit(EventType.FILE_TRANSCRIPTION_RESULT, (job_id, "", None, True))
         except Exception as exc:
-            if self._file_cancel.is_set():
-                self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", None, True))
+            if cancel_event.is_set():
+                self.submit(
+                    EventType.FILE_TRANSCRIPTION_RESULT, (job_id, "", None, True)
+                )
                 return
-            self.submit(EventType.FILE_TRANSCRIPTION_RESULT, ("", exc, False))
+            self.submit(EventType.FILE_TRANSCRIPTION_RESULT, (job_id, "", exc, False))
 
     def _transcribe_file_chunk(self, samples: np.ndarray) -> str:
         transcribe_samples = getattr(self.transcriber, "transcribe_samples", None)
@@ -1498,7 +1613,12 @@ class AppCoordinator:
     def _file_transcription_progress(self, payload) -> None:
         if self._store.snapshot.state is not AppState.FILE_TRANSCRIBING:
             return
-        name, current, total = payload
+        if len(payload) == 4:
+            job_id, name, current, total = payload
+            if job_id != self._file_job_id:
+                return
+        else:
+            name, current, total = payload
         self._store.transition(
             AppState.FILE_TRANSCRIBING,
             title="Transcribing file",
@@ -1510,8 +1630,16 @@ class AppCoordinator:
         self._publish()
 
     def _file_transcription_result(self, payload) -> None:
-        text, error, cancelled = payload
-        if self._store.snapshot.state is not AppState.FILE_TRANSCRIBING:
+        if len(payload) == 4:
+            job_id, text, error, cancelled = payload
+            if job_id != self._file_job_id:
+                return
+        else:
+            text, error, cancelled = payload
+        if (
+            self._closing
+            or self._store.snapshot.state is not AppState.FILE_TRANSCRIBING
+        ):
             return
         self._store.update(file_name="", file_current=0, file_total=0)
         if cancelled:
@@ -1590,8 +1718,16 @@ class AppCoordinator:
             self._refresh_readiness()
 
     def _copy_last(self, payload=None) -> None:
+        busy = self._store.snapshot.state in {
+            AppState.RECORDING,
+            AppState.TRANSCRIBING,
+            AppState.FILE_TRANSCRIBING,
+            AppState.INSERTING,
+        }
         text = str(payload).strip() if payload else self._last_transcript
         if not text:
+            if busy:
+                return
             self._set_error(
                 "No transcript yet",
                 "Dictate something first, then it can be copied.",
@@ -1602,18 +1738,19 @@ class AppCoordinator:
             self.inserter.copy(text)
         except Exception as exc:
             self._logger.warning("Copy last transcript failed: %s", type(exc).__name__)
+            if busy:
+                self._store.update(
+                    detail="Couldn’t copy the transcript. Current work is continuing."
+                )
+                self._publish()
+                return
             self._set_error(
                 "Couldn’t copy the transcript",
                 "The last transcript is still kept in memory.",
                 action="dismiss",
             )
             return
-        if self._store.snapshot.state in {
-            AppState.RECORDING,
-            AppState.TRANSCRIBING,
-            AppState.FILE_TRANSCRIBING,
-            AppState.INSERTING,
-        }:
+        if busy:
             self._store.update(
                 detail="Last transcript copied. Current work is continuing."
             )
@@ -1626,10 +1763,12 @@ class AppCoordinator:
             self._copy_last()
             return
         if self._store.snapshot.state in {
+            AppState.BOOTING,
             AppState.RECORDING,
             AppState.TRANSCRIBING,
             AppState.FILE_TRANSCRIBING,
             AppState.INSERTING,
+            AppState.SHUTTING_DOWN,
         }:
             self._store.update(
                 detail="Finish the current recording before inserting again."
@@ -1648,6 +1787,8 @@ class AppCoordinator:
             )
             return
         self._target = target
+        self._selected_text = ""
+        self._require_selection_match = False
         state = self._store.snapshot.state
         if state is AppState.ERROR:
             self._store.transition(AppState.IDLE)
@@ -1658,7 +1799,7 @@ class AppCoordinator:
             target_screen=target.screen,
         )
         self._publish()
-        self._insert_text(self._last_transcript, target)
+        self._insert_text(self._last_transcript, target, expected_selection=None)
 
     def _dismiss_error(self, _payload=None) -> None:
         if self._store.snapshot.state is AppState.ERROR:
@@ -1679,10 +1820,29 @@ class AppCoordinator:
                 error_action=None,
                 target_screen=None,
             )
-        else:
-            self._refresh_readiness()
+            self._publish()
             return
-        self._publish()
+        if self._store.snapshot.state is AppState.INSERTING:
+            if readiness.ready:
+                setup_title = "Hold-to-talk shortcut unavailable"
+                setup_detail = "Open Accessibility settings, then return to retry."
+                setup_action = "setup"
+            else:
+                setup_title, setup_detail, setup_action = self._setup_message(readiness)
+            self._store.transition(
+                AppState.SETUP_REQUIRED,
+                title=setup_title,
+                detail=setup_detail,
+                readiness=readiness,
+                error_action=setup_action,
+                hands_free=False,
+                has_last_transcript=bool(self._last_transcript),
+                target_screen=None,
+                dictation_mode=self._dictation_mode,
+                **self._writing_fields(),
+            )
+            self._publish()
+        self._refresh_readiness()
 
     def _set_error(self, title: str, detail: str, *, action: str) -> None:
         self._cancel_double_tap_timeout()
@@ -1718,7 +1878,10 @@ class AppCoordinator:
     def _handle_shutdown(self, _payload=None) -> None:
         self._cancel_double_tap_timeout()
         self._awaiting_double_tap = False
-        self._closing = True
+        with self._lifecycle_lock:
+            self._closing = True
+            self._file_cancel.set()
+            self._writing_cancel.set()
         self._store.transition(
             AppState.SHUTTING_DOWN,
             title="Quitting",
@@ -1774,6 +1937,8 @@ class AppCoordinator:
             if not self._shutdown_requested:
                 self._shutdown_requested = True
                 self._closing = True
+                self._file_cancel.set()
+                self._writing_cancel.set()
                 if not self._started:
                     self._started = True
                     self._thread = threading.Thread(

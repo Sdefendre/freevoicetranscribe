@@ -113,6 +113,7 @@ _ALLOWED_TRANSITIONS: dict[AppState, set[AppState]] = {
         AppState.SETUP_REQUIRED,
         AppState.IDLE,
         AppState.FILE_TRANSCRIBING,
+        AppState.INSERTING,
         AppState.ERROR,
         AppState.SHUTTING_DOWN,
     },
@@ -121,6 +122,7 @@ _ALLOWED_TRANSITIONS: dict[AppState, set[AppState]] = {
         AppState.SETUP_REQUIRED,
         AppState.RECORDING,
         AppState.FILE_TRANSCRIBING,
+        AppState.INSERTING,
         AppState.ERROR,
         AppState.SHUTTING_DOWN,
     },
@@ -148,6 +150,7 @@ _ALLOWED_TRANSITIONS: dict[AppState, set[AppState]] = {
     AppState.INSERTING: {
         AppState.INSERTING,
         AppState.IDLE,
+        AppState.SETUP_REQUIRED,
         AppState.ERROR,
         AppState.SHUTTING_DOWN,
     },

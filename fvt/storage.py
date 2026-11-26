@@ -160,9 +160,12 @@ def _save_json_atomic(path: Path, payload: dict) -> None:
         pass
     fd, raw_temp = tempfile.mkstemp(suffix=".tmp", dir=path.parent)
     temp_path = Path(raw_temp)
+    fd_owned = True
     try:
         os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as destination:
+        destination = os.fdopen(fd, "w", encoding="utf-8")
+        fd_owned = False
+        with destination:
             destination.write(
                 json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             )
@@ -174,10 +177,11 @@ def _save_json_atomic(path: Path, payload: dict) -> None:
         except OSError:
             pass
     except Exception:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
+        if fd_owned:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         temp_path.unlink(missing_ok=True)
         raise
 
@@ -236,9 +240,12 @@ class LastTranscriptStore:
             prefix=".last-transcript-", suffix=".tmp", dir=self.path.parent
         )
         temp_path = Path(raw_temp)
+        fd_owned = True
         try:
             os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as destination:
+            destination = os.fdopen(fd, "w", encoding="utf-8")
+            fd_owned = False
+            with destination:
                 destination.write(payload)
                 destination.flush()
                 os.fsync(destination.fileno())
@@ -248,10 +255,11 @@ class LastTranscriptStore:
             except OSError:
                 pass
         except Exception:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+            if fd_owned:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             temp_path.unlink(missing_ok=True)
             raise
 

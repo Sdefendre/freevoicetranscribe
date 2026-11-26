@@ -155,7 +155,7 @@ def _progress_tqdm_class(
 
     class _ProgressTqdm:
         def __init__(self, *args, **kwargs):
-            self.n = 0
+            self.n = max(0.0, float(kwargs.get("initial") or 0))
             total = kwargs.get("total")
             if total is None and args:
                 try:
@@ -166,10 +166,13 @@ def _progress_tqdm_class(
             self.disable = False
 
         def update(self, n=1):
-            self.n += n
+            self.n = max(0.0, self.n + n)
             if self.total > 0:
                 fraction = start + span * min(1.0, self.n / self.total)
                 on_progress(min(1.0, fraction))
+
+        def update_transfer(self, *args, **kwargs):
+            return None
 
         def close(self):
             if self.total > 0:
@@ -178,14 +181,35 @@ def _progress_tqdm_class(
         def __enter__(self):
             return self
 
-        def __exit__(self, *_exc):
-            self.close()
+        def __exit__(self, exc_type, *_exc):
+            if exc_type is None:
+                self.close()
 
         def set_description(self, *args, **kwargs):
             return self
 
+        def set_description_str(self, *args, **kwargs):
+            return self
+
         def set_postfix(self, *args, **kwargs):
             return self
+
+        def set_postfix_str(self, *args, **kwargs):
+            return self
+
+        def set_transfer_postfix_str(self, *args, **kwargs):
+            return self
+
+        def reset(self, total=None):
+            self.n = 0.0
+            if total is not None:
+                self.total = float(total or 0)
+
+        def clear(self, *args, **kwargs):
+            return None
+
+        def display(self, *args, **kwargs):
+            return None
 
         def refresh(self, *args, **kwargs):
             return None

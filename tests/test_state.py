@@ -33,6 +33,19 @@ class StateStoreTests(unittest.TestCase):
         with self.assertRaises(InvalidTransition):
             store.transition(AppState.INSERTING)
 
+    def test_insert_last_transitions_from_idle_and_setup_are_explicit(self):
+        store = StateStore()
+        store.transition(AppState.IDLE, title="Ready")
+        store.transition(AppState.INSERTING, title="Inserting text")
+        self.assertEqual(store.transition(AppState.IDLE).state, AppState.IDLE)
+
+        store.transition(AppState.SETUP_REQUIRED, title="Setup")
+        store.transition(AppState.INSERTING, title="Inserting text")
+        self.assertEqual(
+            store.transition(AppState.SETUP_REQUIRED).state,
+            AppState.SETUP_REQUIRED,
+        )
+
     def test_idle_detail_covers_every_dictation_mode(self):
         self.assertIn("insert", idle_detail_for_mode(DictationMode.DICTATE).lower())
         self.assertIn("cleaned", idle_detail_for_mode(DictationMode.WRITE).lower())

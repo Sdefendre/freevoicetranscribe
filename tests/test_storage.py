@@ -1,9 +1,11 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from fvt.storage import AppPaths, LastTranscriptStore
+from fvt.storage import AppPaths, DeviceSettingsStore, LastTranscriptStore
 
 
 class StorageTests(unittest.TestCase):
@@ -45,6 +47,21 @@ class StorageTests(unittest.TestCase):
             self.assertNotIn("first private transcript", path.read_text())
             self.assertNotIn("history", payload)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_atomic_saves_do_not_double_close_fd_on_replace_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            transcript = LastTranscriptStore(root / "last-transcript.json")
+            settings = DeviceSettingsStore(root / "device-settings.json")
+            with (
+                patch("fvt.storage.os.replace", side_effect=OSError("replace failed")),
+                patch("fvt.storage.os.close", wraps=os.close) as close_spy,
+            ):
+                with self.assertRaises(OSError):
+                    transcript.save("hello")
+                with self.assertRaises(OSError):
+                    settings.save({"dictation_mode": "dictate"})
+            close_spy.assert_not_called()
 
 
 if __name__ == "__main__":

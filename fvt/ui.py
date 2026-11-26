@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import urlparse
 
 import AppKit
 import numpy as np
@@ -910,6 +911,7 @@ class SettingsWindow(NSObject):
         self._tone_field = None
         self._tone_fields: dict[object, str] = {}
         self._remove_buttons: dict[object, str] = {}
+        self._rendered_tones: dict[str, str] | None = None
         self._snapshot = AppSnapshot()
         self._syncing_picker = False
         return self
@@ -1191,10 +1193,6 @@ class SettingsWindow(NSObject):
     def _rebuild_tone_rows(self) -> None:
         if self._tone_list is None:
             return
-        for child in list(self._tone_list.subviews() or []):
-            child.removeFromSuperview()
-        self._tone_fields = {}
-        self._remove_buttons = {}
         tones = {}
         reader = getattr(self._coordinator, "app_tones", None)
         if reader is not None:
@@ -1202,6 +1200,13 @@ class SettingsWindow(NSObject):
                 tones = dict(reader())
             except Exception:
                 tones = {}
+        if tones == self._rendered_tones:
+            return
+        self._rendered_tones = dict(tones)
+        for child in list(self._tone_list.subviews() or []):
+            child.removeFromSuperview()
+        self._tone_fields = {}
+        self._remove_buttons = {}
         row_height = 28
         height = max(100, row_height * max(1, len(tones)))
         self._tone_list.setFrame_(AppKit.NSMakeRect(0, 0, 464, height))
@@ -1417,6 +1422,7 @@ class FileTranscribeWindow(NSObject):
         self._close_button = None
         self._source_path: Path | None = None
         self._result_text = ""
+        self._status_sticky = False
         self._snapshot = AppSnapshot()
         return self
 
@@ -1550,7 +1556,9 @@ class FileTranscribeWindow(NSObject):
             ),
         )
 
+        status: str | None = None
         if working:
+            self._status_sticky = False
             if snapshot.file_total > 0:
                 status = snapshot.detail
                 self._progress.setHidden_(False)
@@ -1575,15 +1583,26 @@ class FileTranscribeWindow(NSObject):
             self._progress.setDoubleValue_(0.0)
             result = str(getattr(self._coordinator, "file_result", "") or "")
             if result:
-                self._result_text = result
-                self._result_view.setString_(result)
-                status = "Done. Copy the transcript or save it as a text file."
+                if (
+                    result != self._result_text
+                    or previous.state is AppState.FILE_TRANSCRIBING
+                ):
+                    self._result_text = result
+                    self._result_view.setString_(result)
+                    self._status_sticky = False
+                    status = "Done. Copy the transcript or save it as a text file."
+                elif not self._status_sticky:
+                    status = "Done. Copy the transcript or save it as a text file."
             elif previous.state is AppState.FILE_TRANSCRIBING:
+                self._result_text = ""
+                self._result_view.setString_("")
+                self._status_sticky = True
                 status = f"{snapshot.title}. {snapshot.detail}".strip()
-            elif not model_ready:
-                status = "Download the local speech model in Setup first."
-            else:
-                status = "Ready for a wav, mp3, m4a, or similar file."
+            elif not self._status_sticky:
+                if not model_ready:
+                    status = "Download the local speech model in Setup first."
+                else:
+                    status = "Ready for a wav, mp3, m4a, or similar file."
             _set_button_state(
                 self._close_button,
                 "Close",
@@ -1591,7 +1610,8 @@ class FileTranscribeWindow(NSObject):
                 help_text="Close this window.",
             )
 
-        _set_label_text(self._status, status, accessibility_label=status)
+        if status is not None:
+            _set_label_text(self._status, status, accessibility_label=status)
         has_result = bool(self._result_text)
         _set_button_state(
             self._copy_button,
@@ -1609,6 +1629,7 @@ class FileTranscribeWindow(NSObject):
     @objc.python_method
     def _start_path(self, path: Path) -> None:
         if not is_supported_audio_path(path):
+            self._status_sticky = True
             _set_label_text(
                 self._status,
                 "Choose a wav, mp3, m4a, or similar audio file.",
@@ -1616,6 +1637,7 @@ class FileTranscribeWindow(NSObject):
             return
         self._source_path = path
         self._result_text = ""
+        self._status_sticky = False
         self._result_view.setString_("")
         self._coordinator.transcribe_audio_file(path)
 
@@ -1662,8 +1684,10 @@ class FileTranscribeWindow(NSObject):
             return
         try:
             write_transcript_text(Path(url.path()), self._result_text)
+            self._status_sticky = True
             _set_label_text(self._status, "Saved as a text file.")
         except OSError:
+            self._status_sticky = True
             _set_label_text(self._status, "The transcript could not be saved.")
 
     def closePressed_(self, _sender) -> None:
@@ -1747,7 +1771,6 @@ class StatusBarApp(rumps.App):
         busy = snapshot.state in {
             AppState.RECORDING,
             AppState.TRANSCRIBING,
-            AppState.FILE_TRANSCRIBING,
             AppState.INSERTING,
             AppState.SHUTTING_DOWN,
             AppState.BOOTING,
@@ -1806,6 +1829,7 @@ class StatusBarApp(rumps.App):
         rumps.quit_application()
 
     def open_feedback(self) -> None:
+        default_url = "https://github.com/Sdefendre/freevoicetranscribe/issues/new"
         settings = getattr(self._coordinator, "settings_store", None)
         url = None
         if settings is not None:
@@ -1813,11 +1837,15 @@ class StatusBarApp(rumps.App):
                 url = settings.load().get("feedback_url")
             except Exception:
                 url = None
-        target = url or "https://github.com/Sdefendre/freevoicetranscribe/issues/new"
+        target = default_url
+        if isinstance(url, str):
+            parsed = urlparse(url.strip())
+            if parsed.scheme in {"http", "https"} and parsed.netloc:
+                target = url.strip()
         try:
-            AppKit.NSWorkspace.sharedWorkspace().openURL_(
-                AppKit.NSURL.URLWithString_(target)
-            )
+            ns_url = AppKit.NSURL.URLWithString_(target)
+            if ns_url is not None:
+                AppKit.NSWorkspace.sharedWorkspace().openURL_(ns_url)
         except Exception:
             pass
 

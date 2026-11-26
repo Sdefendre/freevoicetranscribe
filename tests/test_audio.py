@@ -110,6 +110,34 @@ class AudioRecorderTests(unittest.TestCase):
             self.assertTrue(recorder.cancel())
             self.assertFalse(recorder.is_stopping)
 
+    def test_input_device_name_queries_configured_index_and_terminates_pyaudio(self):
+        created = []
+
+        class DevicePyAudio(FakePyAudio):
+            def __init__(self):
+                super().__init__()
+                created.append(self)
+
+            def get_device_info_by_index(self, index):
+                return {"index": index, "name": f"USB Mic {index}"}
+
+            def get_default_input_device_info(self):
+                return {"index": 0, "name": "Built-in Mic"}
+
+        with tempfile.TemporaryDirectory() as temp:
+            recorder = AudioRecorder(
+                Path(temp),
+                pa_factory=DevicePyAudio,
+                input_device_index=3,
+            )
+            self.assertEqual(recorder.input_device_name, "USB Mic 3")
+            self.assertEqual(len(created), 1)
+            self.assertTrue(created[0].terminated)
+
+            recorder.start()
+            self.assertEqual(recorder.input_device_name, "USB Mic 3")
+            recorder.cancel()
+
 
 if __name__ == "__main__":
     unittest.main()
